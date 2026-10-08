@@ -1,6 +1,6 @@
 // Органайзер задач: крошечный сервер для страницы на GitHub Pages.
 // Хранит задачи в data/tasks.json и отправляет отчёты «что сделано» в MAX
-// от бота «Приз»: либо владелице в личку («Мне»), либо в канал «БОТ РАБОЧИЙ».
+// от бота доски: Маше в личку, в канал администрации бота или «Всем» (в оба места).
 // Бот «Приз» не трогает: только ЧИТАЕТ его .env ради ключа и id канала.
 // Без зависимостей — нужен только Node 18+.
 
@@ -20,7 +20,7 @@ const DATA_FILE = process.env.TASKS_DATA || config.dataFile || path.join(HERE, '
 const MAX_API = process.env.TASKS_MAX_API || config.maxApi || 'https://platform-api2.max.ru';
 const ALLOWED_ORIGINS = config.allowedOrigins || ['https://mashater7.github.io'];
 
-// Ключи ботов и id «БОТ РАБОЧИЙ» берём из .env самих ботов (только чтение).
+// Ключи ботов и id канала администрации бота берём из .env самих ботов (только чтение).
 function readEnvFile(file) {
   const out = {};
   if (!file || !fs.existsSync(file)) return out;
@@ -53,8 +53,11 @@ function botForTask(t) {
 
 const TARGETS = {
   me: { label: 'Маше', param: 'user_id', id: String(config.meUserId || '') },
-  work: { label: 'БОТ РАБОЧИЙ', param: 'chat_id', id: String(config.workChatId || botEnv.PROMO_NOTIFY_CHANNEL_ID || '') },
+  // Канал тот же, что раньше звался «БОТ РАБОЧИЙ», — поменялось только название.
+  work: { label: 'Администрации бота', param: 'chat_id', id: String(config.workChatId || botEnv.PROMO_NOTIFY_CHANNEL_ID || '') },
 };
+// «Всем» — то же сообщение в оба места по очереди.
+const ALL_TARGETS = ['me', 'work'];
 
 // ---------- Хранилище ----------
 const DEFAULT_BOARDS = ['ПризКитбот', 'Антибот_КитБот', 'СтопСпам_КитБот'];
@@ -69,12 +72,18 @@ const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 
 function newId() { return crypto.randomBytes(6).toString('hex'); }
 
+// Старые подписи «куда отправлено» → нынешние названия кнопок.
+const OLD_SENT_TO = { 'Мне': 'Маше', 'БОТ РАБОЧИЙ': 'Администрации бота' };
+
+export function migrateState(s) {
+  const tasks = s.tasks || [];
+  tasks.forEach(t => { if (Object.hasOwn(OLD_SENT_TO, t.sentTo)) t.sentTo = OLD_SENT_TO[t.sentTo]; });
+  return { boards: s.boards || [], categories: s.categories || [], tasks };
+}
+
 function loadState() {
   try {
-    const s = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    const tasks = s.tasks || [];
-    tasks.forEach(t => { if (t.sentTo === 'Мне') t.sentTo = 'Маше'; });   // кнопку «Мне» переименовали в «Маше»
-    return { boards: s.boards || [], categories: s.categories || [], tasks };
+    return migrateState(JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')));
   } catch (e) {
     if (e.code !== 'ENOENT') throw e;
     return { boards: DEFAULT_BOARDS.map(name => ({ id: newId(), name })), categories: [], tasks: [] };
@@ -124,7 +133,7 @@ function reportText(t, comment, reporter) {
   const where = [board && board.name, cat && cat.name].filter(Boolean).join(' · ');
   return (STATUS_TITLES[t.status] || '📌 Задача') + (where ? ' — ' + where : '') + '\n\n' +
     'Задача: ' + t.text +
-    (comment ? '\n\nКомментарий: ' + comment : '') +
+    (comment ? '\n\n' + (t.status === 'tested' ? 'Что проверено: ' : 'Комментарий: ') + comment : '') +
     (reporter ? '\n\n— ' + reporter : '');
 }
 
@@ -192,11 +201,24 @@ async function sendToMax(bot, target, text, photos = []) {
 
 async function sendTask(t, target, comment, reporter) {
   const bot = botForTask(t);
-  const err = await sendToMax(bot, target, reportText(t, comment, reporter), t.photos || []);
-  if (err) return err;
-  t.sent = Date.now();
-  t.sentTo = TARGETS[target].label;
-  t.sentBy = bot.label;
+  const list = target === 'all' ? ALL_TARGETS : [target];
+  if (!list.every(x => TARGETS[x])) return 'Неизвестно, куда отправлять';
+  const text = reportText(t, comment, reporter);
+  const done = [], failed = [];
+  for (const x of list) {
+    const err = await sendToMax(bot, x, text, t.photos || []);
+    if (err) failed.push({ label: TARGETS[x].label, err }); else done.push(TARGETS[x].label);
+  }
+  // Отметку на карточке ставим про то, что реально дошло.
+  if (done.length) {
+    t.sent = Date.now();
+    t.sentTo = done.length === 2 ? 'Маше и администрации бота' : done[0];
+    t.sentBy = bot.label;
+  }
+  if (!failed.length) return null;
+  if (list.length === 1) return failed[0].err;
+  return failed.map(f => f.label + ': ' + f.err).join('; ') +
+    (done.length ? '. ' + done.join(', ') + ' — отправлено' : '');
 }
 
 // ---------- Действия ----------
@@ -227,7 +249,7 @@ const actions = {
     state.tasks.push(t);
     saveState();
     // «Сразу отправить» из окна новой задачи: задача сохраняется в любом случае.
-    if (TARGETS[d.sendTo]) {
+    if (TARGETS[d.sendTo] || d.sendTo === 'all') {
       const err = await sendTask(t, d.sendTo, '', t.author);
       if (err) return 'Задача сохранена, но не отправилась: ' + err;
     }
@@ -348,10 +370,14 @@ export const server = http.createServer((req, res) => {
   if (photo) {
     const file = path.join(PHOTO_DIR, photo[1]);
     if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': photo[2] === 'jpg' ? 'image/jpeg' : 'image/' + photo[2],
       'Cache-Control': 'public, max-age=31536000, immutable',
-    });
+      Vary: 'Origin',
+    };
+    // Чтобы страница с GitHub Pages могла открыть фото для рисования (canvas).
+    if (ALLOWED_ORIGINS.includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+    res.writeHead(200, headers);
     return fs.createReadStream(file).pipe(res);
   }
   if (req.method !== 'POST') { res.writeHead(404); return res.end(); }

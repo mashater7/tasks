@@ -10,6 +10,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-test-'));
 const sent = [];
 let maxFails = false;
 let maxReply = null;
+let failUrl = '';          // отказ только для одного адреса — проверка «Всем»
 const uploads = [];
 const fakeMax = http.createServer((req, res) => {
   let b = '';
@@ -21,12 +22,13 @@ const fakeMax = http.createServer((req, res) => {
     if (req.url === '/upload') return json({ photos: { a: { token: 'imgtok' } } });
     sent.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b) });
     if (maxReply) { res.writeHead(maxReply.status); return res.end(maxReply.body); }
+    if (failUrl && req.url === failUrl) { res.writeHead(200); return res.end('{"success":false}'); }
     if (maxFails) { res.writeHead(200); return res.end('{"success":false}'); }
     json({ message: { body: { mid: 'x' } } });
   });
 });
 
-let server, base;
+let server, base, migrateState;
 before(async () => {
   await new Promise(r => fakeMax.listen(0, '127.0.0.1', r));
   fs.writeFileSync(path.join(dir, 'bot.env'), 'BOT_TOKEN=tok123\nPROMO_NOTIFY_CHANNEL_ID=-555\n');
@@ -40,7 +42,7 @@ before(async () => {
   }));
   process.env.TASKS_CONFIG = path.join(dir, 'config.json');
   process.env.TASKS_NO_LISTEN = '1';
-  ({ server } = await import('./server.mjs'));
+  ({ server, migrateState } = await import('./server.mjs'));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
 });
@@ -87,12 +89,76 @@ test('отчёт «Мне» уходит в личку по user_id', async () =
   assert.equal(r.tasks[0].sentTo, 'Маше');
 });
 
-test('отчёт в «БОТ РАБОЧИЙ» уходит в канал из .env бота', async () => {
+test('отчёт «В администрацию бота» уходит в канал из .env бота', async () => {
   const t = (await api('list')).tasks[0];
   const r = await api('sendReport', { id: t.id, comment: 'Готово', target: 'work' });
   assert.equal(r.ok, true);
   assert.equal(sent.at(-1).url, '/messages?chat_id=-555');
-  assert.equal(r.tasks[0].sentTo, 'БОТ РАБОЧИЙ');
+  assert.equal(r.tasks[0].sentTo, 'Администрации бота');
+});
+
+test('«Всем» — одно и то же сообщение уходит и Маше, и в администрацию бота', async () => {
+  const t = (await api('list')).tasks[0];
+  const n = sent.length;
+  const r = await api('sendReport', { id: t.id, comment: 'Для всех', target: 'all' });
+  assert.equal(r.ok, true);
+  const two = sent.slice(n);
+  assert.deepEqual(two.map(m => m.url), ['/messages?user_id=777', '/messages?chat_id=-555']);
+  assert.equal(two[0].body.text, two[1].body.text);
+  assert.match(two[0].body.text, /Комментарий: Для всех/);
+  assert.equal(r.tasks[0].sentTo, 'Маше и администрации бота');
+});
+
+test('«Всем»: если одно место не приняло — ошибка называет его, отметка только про дошедшее', async () => {
+  const t = (await api('list')).tasks[0];
+  failUrl = '/messages?chat_id=-555';
+  const r = await api('sendReport', { id: t.id, comment: 'Половина', target: 'all' });
+  failUrl = '';
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Администрации бота: MAX не принял/);
+  assert.match(r.error, /Маше — отправлено/);
+  assert.equal(r.tasks[0].sentTo, 'Маше');
+});
+
+test('отчёт из «Протестировано» подписан как проверка', async () => {
+  const t = (await api('list')).tasks[0];
+  await api('updateTask', { id: t.id, status: 'tested' });
+  const r = await api('sendReport', { id: t.id, comment: 'Нажала на телефоне — работает', reporter: 'Наташа', target: 'me' });
+  assert.equal(r.ok, true);
+  const text = sent.at(-1).body.text;
+  assert.match(text, /^🧪 Протестировано/);
+  assert.match(text, /Что проверено: Нажала на телефоне — работает/);
+  assert.match(text, /— Наташа$/);
+  await api('updateTask', { id: t.id, status: 'done' });
+});
+
+test('новая задача «Сохранить и отправить → Всем» уходит в оба места', async () => {
+  const s = await api('list');
+  const n = sent.length;
+  const r = await api('addTask', { board: s.boards[0].id, text: 'Всем сразу', author: 'Наташа', sendTo: 'all' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(sent.slice(n).map(m => m.url), ['/messages?user_id=777', '/messages?chat_id=-555']);
+  const t = r.tasks.find(x => x.text === 'Всем сразу');
+  assert.equal(t.sentTo, 'Маше и администрации бота');
+  await api('deleteTask', { id: t.id });
+});
+
+test('неизвестный получатель — задача сохраняется без отправки', async () => {
+  const s = await api('list');
+  const n = sent.length;
+  const r = await api('addTask', { board: s.boards[0].id, text: 'Куда-то', sendTo: 'nobody' });
+  assert.equal(r.ok, true);
+  assert.equal(sent.length, n);
+  await api('deleteTask', { id: r.tasks.find(x => x.text === 'Куда-то').id });
+});
+
+test('старые отметки «БОТ РАБОЧИЙ» и «Мне» переименовываются при загрузке', () => {
+  const s = migrateState({ tasks: [
+    { sentTo: 'БОТ РАБОЧИЙ' }, { sentTo: 'Мне' }, { sentTo: 'Маше' }, { sentTo: '' },
+  ] });
+  assert.deepEqual(s.tasks.map(t => t.sentTo), ['Администрации бота', 'Маше', 'Маше', '']);
+  assert.deepEqual(s.boards, []);
+  assert.deepEqual(s.categories, []);
 });
 
 test('MAX ответил без message — ошибка, но комментарий сохранён', async () => {
@@ -130,7 +196,7 @@ test('новая задача с фото и «сразу отправить» �
   assert.equal(r.ok, true);
   const t = r.tasks.find(x => x.text === 'С фото');
   assert.equal(t.photos.length, 1);
-  assert.equal(t.sentTo, 'БОТ РАБОЧИЙ');
+  assert.equal(t.sentTo, 'Администрации бота');
   const m = sent.at(-1);
   assert.equal(m.url, '/messages?chat_id=-555');
   assert.match(m.body.text, /^🆕 Новая задача — Антибот_КитБот/);
@@ -138,6 +204,9 @@ test('новая задача с фото и «сразу отправить» �
   const img = await fetch(base + '/photo/' + t.photos[0]);
   assert.equal(img.status, 200);
   assert.equal(await img.text(), 'fakepng');
+  const cors = await fetch(base + '/photo/' + t.photos[0], { headers: { Origin: 'https://mashater7.github.io' } });
+  assert.equal(cors.headers.get('access-control-allow-origin'), 'https://mashater7.github.io',
+    'фото можно открыть для рисования и со страницы на GitHub Pages');
   const d = await api('deleteTask', { id: t.id });
   assert.equal(d.ok, true);
   assert.equal((await fetch(base + '/photo/' + t.photos[0])).status, 404, 'файл фото удалён вместе с задачей');
