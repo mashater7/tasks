@@ -10,11 +10,13 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-test-'));
 const sent = [];
 let maxFails = false;
 let maxReply = null;
+const uploads = [];
 const fakeMax = http.createServer((req, res) => {
   let b = '';
   req.on('data', c => { b += c; });
   req.on('end', () => {
     const json = o => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (req.url === '/uploads?type=image') uploads.push(req.headers.authorization);
     if (req.url === '/uploads?type=image') return json({ url: 'http://127.0.0.1:' + fakeMax.address().port + '/upload' });
     if (req.url === '/upload') return json({ photos: { a: { token: 'imgtok' } } });
     sent.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b) });
@@ -28,8 +30,11 @@ let server, base;
 before(async () => {
   await new Promise(r => fakeMax.listen(0, '127.0.0.1', r));
   fs.writeFileSync(path.join(dir, 'bot.env'), 'BOT_TOKEN=tok123\nPROMO_NOTIFY_CHANNEL_ID=-555\n');
+  fs.writeFileSync(path.join(dir, 'antibot.env'), 'BOT_TOKEN=tokAnti\n');
+  fs.writeFileSync(path.join(dir, 'stopspam.env'), 'BOT_TOKEN="tokStop"\n');
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
     password: 'pw', meUserId: 777, botEnvFile: path.join(dir, 'bot.env'),
+    bots: { antibot: path.join(dir, 'antibot.env'), stopspam: path.join(dir, 'stopspam.env') },
     dataFile: path.join(dir, 'data', 'tasks.json'),
     maxApi: 'http://127.0.0.1:' + fakeMax.address().port,
   }));
@@ -106,7 +111,7 @@ test('dialog.suspended — понятная подсказка вместо 403'
   const r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
   maxReply = null;
   assert.equal(r.ok, false);
-  assert.match(r.error, /нажмите «Начать»/);
+  assert.match(r.error, /нет переписки с ботом ПризКитбот/);
 });
 
 test('отправка из любой колонки: заголовок по статусу, комментарий необязателен', async () => {
@@ -136,6 +141,36 @@ test('новая задача с фото и «сразу отправить» �
   const d = await api('deleteTask', { id: t.id });
   assert.equal(d.ok, true);
   assert.equal((await fetch(base + '/photo/' + t.photos[0])).status, 404, 'файл фото удалён вместе с задачей');
+});
+
+test('каждая доска пишет от своего бота (ключ, загрузка фото, подпись на карточке)', async () => {
+  const s = await api('list');
+  const [priz, anti, stop] = s.boards;
+  assert.deepEqual(Object.values(s.senders), ['ПризКитбот', 'Антибот_КитБот', 'СтопСпам_КитБот']);
+  const png = 'data:image/png;base64,' + Buffer.from('p').toString('base64');
+  const cases = [[priz, 'tok123', 'ПризКитбот'], [anti, 'tokAnti', 'Антибот_КитБот'], [stop, 'tokStop', 'СтопСпам_КитБот']];
+  for (const [board, tok, label] of cases) {
+    for (const target of ['me', 'work']) {
+      uploads.length = 0;
+      const text = 'Бот ' + label + ' ' + target;
+      const r = await api('addTask', { board: board.id, text, photos: [png], sendTo: target });
+      assert.equal(r.ok, true, text);
+      assert.equal(sent.at(-1).auth, tok, 'сообщение ' + text);
+      assert.deepEqual(uploads, [tok], 'фото загружено ключом ' + label);
+      const t = r.tasks.find(x => x.text === text);
+      assert.equal(t.sentBy, label);
+      await api('deleteTask', { id: t.id });
+    }
+  }
+});
+
+test('нет переписки с ботом — подсказка называет нужного бота', async () => {
+  const s = await api('list');
+  maxReply = { status: 404, body: '{"code":"chat.not.found","message":"dialog.not.found"}' };
+  const r = await api('addTask', { board: s.boards[2].id, text: 'x', sendTo: 'me' });
+  maxReply = null;
+  assert.match(r.error, /нет переписки с ботом СтопСпам_КитБот/);
+  await api('deleteTask', { id: r.tasks.find(t => t.text === 'x').id });
 });
 
 test('переименование бота', async () => {

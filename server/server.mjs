@@ -20,7 +20,7 @@ const DATA_FILE = process.env.TASKS_DATA || config.dataFile || path.join(HERE, '
 const MAX_API = process.env.TASKS_MAX_API || config.maxApi || 'https://platform-api2.max.ru';
 const ALLOWED_ORIGINS = config.allowedOrigins || ['https://mashater7.github.io'];
 
-// Ключ бота и id «БОТ РАБОЧИЙ» берём из .env бота «Приз» (только чтение).
+// Ключи ботов и id «БОТ РАБОЧИЙ» берём из .env самих ботов (только чтение).
 function readEnvFile(file) {
   const out = {};
   if (!file || !fs.existsSync(file)) return out;
@@ -31,7 +31,26 @@ function readEnvFile(file) {
   return out;
 }
 const botEnv = readEnvFile(config.botEnvFile);
-const BOT_TOKEN = process.env.TASKS_BOT_TOKEN || botEnv.BOT_TOKEN || '';
+
+// Каждая доска пишет от своего бота: задачи по Антиботу присылает Антибот и т.д.
+// Бот выбирается по названию доски; всё остальное — от ПризКитбота.
+const BOTS = {
+  priz: { label: 'ПризКитбот', envFile: config.botEnvFile },
+  antibot: { label: 'Антибот_КитБот', envFile: (config.bots || {}).antibot },
+  stopspam: { label: 'СтопСпам_КитБот', envFile: (config.bots || {}).stopspam },
+};
+for (const b of Object.values(BOTS)) b.token = readEnvFile(b.envFile).BOT_TOKEN || '';
+
+function botKeyForBoard(name) {
+  if (/антибот/i.test(name || '')) return 'antibot';
+  if (/стоп\s*спам/i.test(name || '')) return 'stopspam';
+  return 'priz';
+}
+function botForTask(t) {
+  const board = state.boards.find(b => b.id === t.board);
+  return BOTS[botKeyForBoard(board && board.name)];
+}
+
 const TARGETS = {
   me: { label: 'Мне', param: 'user_id', id: String(config.meUserId || '') },
   work: { label: 'БОТ РАБОЧИЙ', param: 'chat_id', id: String(config.workChatId || botEnv.PROMO_NOTIFY_CHANNEL_ID || '') },
@@ -109,10 +128,10 @@ function reportText(t, comment, reporter) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function maxCall(method, pathAndQuery, body) {
+async function maxCall(token, method, pathAndQuery, body) {
   const res = await fetch(MAX_API + pathAndQuery, {
     method,
-    headers: { Authorization: BOT_TOKEN, 'Content-Type': 'application/json' },
+    headers: { Authorization: token, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(20000),
   });
@@ -123,45 +142,45 @@ async function maxCall(method, pathAndQuery, body) {
 }
 
 // Поток MAX: POST /uploads?type=image → url, туда multipart-поле "data" → token.
-async function uploadPhoto(name) {
-  const up = await maxCall('POST', '/uploads?type=image');
+async function uploadPhoto(token, name) {
+  const up = await maxCall(token, 'POST', '/uploads?type=image');
   if (!up.j || !up.j.url) throw new Error('uploads без url: ' + up.txt.slice(0, 120));
   const form = new FormData();
   form.append('data', new Blob([fs.readFileSync(path.join(PHOTO_DIR, name))]), name);
   const res = await fetch(up.j.url, { method: 'POST', body: form, signal: AbortSignal.timeout(60000) });
   const j = await res.json().catch(() => null);
-  const token = j && (j.token || (j.photos && (Object.values(j.photos)[0] || {}).token));
-  if (!token) throw new Error('загрузка фото без token (' + res.status + ')');
-  return token;
+  const photoToken = j && (j.token || (j.photos && (Object.values(j.photos)[0] || {}).token));
+  if (!photoToken) throw new Error('загрузка фото без token (' + res.status + ')');
+  return photoToken;
 }
 
-function maxError(r) {
+function maxError(r, bot) {
   const s = (r.j && (r.j.message || r.j.code)) || r.txt || '';
-  if (/dialog\.suspended/.test(s)) {
-    return 'Переписка с ботом ПризКитбот остановлена. Откройте бота в MAX, нажмите «Начать» и отправьте ещё раз.';
+  if (/dialog\.(suspended|not\.found)|chat\.not\.found/.test(s)) {
+    return 'У получателя нет переписки с ботом ' + bot.label + '. Нужно открыть этого бота в MAX и нажать «Начать».';
   }
   return 'MAX не принял сообщение (' + r.status + ')';
 }
 
-async function sendToMax(target, text, photos = []) {
+async function sendToMax(bot, target, text, photos = []) {
   const tg = TARGETS[target];
   if (!tg) return 'Неизвестно, куда отправлять';
-  if (!BOT_TOKEN || !tg.id) return 'Сервер не настроен для отправки «' + tg.label + '»';
+  if (!bot.token || !tg.id) return 'Сервер не настроен: нет ключа бота ' + bot.label + ' или адреса «' + tg.label + '»';
   try {
     const attachments = [];
-    for (const name of photos) attachments.push({ type: 'image', payload: { token: await uploadPhoto(name) } });
+    for (const name of photos) attachments.push({ type: 'image', payload: { token: await uploadPhoto(bot.token, name) } });
     const body = { text: text.slice(0, 3900) };
     if (attachments.length) body.attachments = attachments;
     const q = '/messages?' + tg.param + '=' + encodeURIComponent(tg.id);
     // MAX отдаёт token фото сразу, а обрабатывает его ещё пару секунд и до тех пор
     // отвергает сообщение (attachment.not.ready) — повторяем.
     for (let attempt = 0; ; attempt++) {
-      const r = await maxCall('POST', q, body);
+      const r = await maxCall(bot.token, 'POST', q, body);
       // MAX бывает отвечает 200 без сообщения — успех только при наличии message.
       if (r.ok && r.j && r.j.message) return null;
       if (/not\.ready|not\.processed/.test(r.txt) && attempt < 6) { await sleep(1500); continue; }
-      console.error('[tasks] MAX ' + r.status + ': ' + r.txt.slice(0, 200));
-      return maxError(r);
+      console.error('[tasks] MAX ' + bot.label + ' ' + r.status + ': ' + r.txt.slice(0, 200));
+      return maxError(r, bot);
     }
   } catch (e) {
     console.error('[tasks] MAX error:', e.message);
@@ -170,10 +189,12 @@ async function sendToMax(target, text, photos = []) {
 }
 
 async function sendTask(t, target, comment, reporter) {
-  const err = await sendToMax(target, reportText(t, comment, reporter), t.photos || []);
+  const bot = botForTask(t);
+  const err = await sendToMax(bot, target, reportText(t, comment, reporter), t.photos || []);
   if (err) return err;
   t.sent = Date.now();
   t.sentTo = TARGETS[target].label;
+  t.sentBy = bot.label;
 }
 
 // ---------- Действия ----------
@@ -260,6 +281,13 @@ const actions = {
 };
 
 // ---------- HTTP ----------
+// Страница показывает, от какого бота уйдёт сообщение с каждой доски.
+function senders() {
+  const out = {};
+  state.boards.forEach(b => { out[b.id] = BOTS[botKeyForBoard(b.name)].label; });
+  return out;
+}
+
 function reply(res, origin, obj) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -310,8 +338,8 @@ export const server = http.createServer((req, res) => {
     try {
       const err = await fn(d);
       if (d.action !== 'list') saveState();
-      if (err) return reply(res, origin, { ok: false, error: err, ...state });
-      reply(res, origin, { ok: true, ...state });
+      if (err) return reply(res, origin, { ok: false, error: err, ...state, senders: senders() });
+      reply(res, origin, { ok: true, ...state, senders: senders() });
     } catch (e) {
       console.error('[tasks]', d.action, e);
       reply(res, origin, { ok: false, error: 'Ошибка сервера' });
@@ -324,6 +352,7 @@ export const server = http.createServer((req, res) => {
 if (!process.env.TASKS_NO_LISTEN) {
   server.listen(PORT, HOST, () => {
     console.log('[tasks] слушаю ' + HOST + ':' + PORT + ', данные: ' + DATA_FILE +
-      ', отправка: ' + (BOT_TOKEN ? 'ключ есть' : 'КЛЮЧА НЕТ') + ', work=' + (TARGETS.work.id || '—'));
+      ', ключи: ' + Object.values(BOTS).map(b => b.label + (b.token ? ' ключ есть' : ' КЛЮЧА НЕТ')).join(', ') +
+      ', work=' + (TARGETS.work.id || '—'));
   });
 }

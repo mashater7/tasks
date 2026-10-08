@@ -119,6 +119,7 @@
       <label for="tStatus">Статус</label>
       <select id="tStatus"></select>
     </div>
+    <p class="hint send-now">Отправит бот <b class="sender-name"></b>.</p>
     <label>Фото <span class="hint-inline">(до 5 штук)</span></label>
     <div class="photos" id="tPhotos"></div>
     <label class="addphoto"><input type="file" id="tFile" accept="image/*" multiple hidden>📎 Прикрепить фото</label>
@@ -136,7 +137,7 @@
 <div class="modal-bg" id="reportModal">
   <form class="modal" id="reportForm">
     <h3 id="rTitle">Что сделано?</h3>
-    <p class="hint">Задача с фото и комментарием уйдёт в MAX от бота ПризКитбот — выбери куда.</p>
+    <p class="hint">Задача с фото и комментарием уйдёт в MAX от бота <b class="sender-name"></b> — выбери куда.</p>
     <div class="quote" id="rTask"></div>
     <label for="rComment">Комментарий</label>
     <textarea id="rComment" placeholder="Например: добавила кнопку «Участвовать», проверила на тестовом канале"></textarea>
@@ -178,7 +179,7 @@ const STATUSES = [
 ];
 const CAT_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b6d4', '#e11d48', '#a855f7'];
 
-let state = { boards: [], categories: [], tasks: [] };
+let state = { boards: [], categories: [], tasks: [], senders: {} };
 let password = store('tracker_pw') || '';
 let currentBoard = store('tracker_board') || '';
 let currentCat = '';          // '' — все, '_none' — без доски
@@ -246,6 +247,7 @@ async function api(action, data, silent) {
     state.boards = j.boards || [];
     state.categories = j.categories || [];
     state.tasks = j.tasks || [];
+    state.senders = j.senders || {};
     render();
     setStatus('Обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
     return j;
@@ -306,7 +308,7 @@ function render() {
           return '<a class="ph" href="' + photoUrl(n) + '" target="_blank" rel="noopener"><img src="' + photoUrl(n) + '" alt="" loading="lazy"></a>';
         }).join('') + '</div>' : '') +
         (t.comment ? '<div class="comment">💬 ' + esc(t.comment) + '</div>' : '') +
-        (t.sent ? '<div class="sent">📤 Отправлено: ' + esc(t.sentTo || 'MAX') + ' · ' + fmt(t.sent) + '</div>' : '') +
+        (t.sent ? '<div class="sent">📤 ' + esc(t.sentTo || 'MAX') + (t.sentBy ? ' от ' + esc(t.sentBy) : '') + ' · ' + fmt(t.sent) + '</div>' : '') +
         '<div class="meta">' + esc(t.author) + ' · ' + fmt(t.created) + '</div>' +
         '<div class="actions">' +
           (i > 0 ? '<button data-act="prev" title="Назад">←</button>' : '') +
@@ -476,8 +478,13 @@ $('#tPhotos').addEventListener('click', function (e) {
   renderFormPhotos();
 });
 
+function showSender(boardId) {
+  document.querySelectorAll('.sender-name').forEach(function (el) { el.textContent = state.senders[boardId] || 'ПризКитбот'; });
+}
+
 function openTask(t) {
   editingId = t ? t.id : null;
+  showSender(t ? t.board : currentBoard);
   formPhotos = t && t.photos ? t.photos.map(function (n) { return { name: n }; }) : [];
   removedPhotos = [];
   renderFormPhotos();
@@ -533,6 +540,7 @@ $('#taskForm').addEventListener('submit', async function (e) {
 // ---------- Отчёт «что сделано» ----------
 function openReport(t) {
   reportId = t.id;
+  showSender(t.board);
   const done = t.status === 'done' || t.status === 'tested';
   $('#rTitle').textContent = done ? 'Что сделано?' : 'Отправить в MAX';
   $('#rNameLabel').textContent = done ? 'Кто сделал' : 'Кто отправляет';
