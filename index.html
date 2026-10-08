@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>Задачи</title>
 <style>
   :root{
@@ -168,7 +169,8 @@
 
 <script>
 // ===== НАСТРОЙКА: вставь сюда ссылку на скрипт (заканчивается на /exec) =====
-const API_URL = 'https://lk.24kitbot.ru/tasks-api/';
+// На своём домене (24kitbot.ru/tasks/) страница и сервер по одному адресу; с GitHub Pages — через lk.
+const API_URL = /(^|\.)24kitbot\.ru$/.test(location.hostname) ? './' : 'https://lk.24kitbot.ru/tasks-api/';
 
 const STATUSES = [
   { key: 'new',         label: 'Новая',          color: '#9ca3af' },
@@ -305,7 +307,7 @@ function render() {
         (cat ? '<span class="tag" style="--t:' + catColor(cat.id) + '">' + esc(cat.name) + '</span>' : '') +
         '<div class="text">' + esc(t.text) + '</div>' +
         (t.photos && t.photos.length ? '<div class="photos">' + t.photos.map(function (n) {
-          return '<a class="ph" href="' + photoUrl(n) + '" target="_blank" rel="noopener"><img src="' + photoUrl(n) + '" alt="" loading="lazy"></a>';
+          return '<a class="ph" href="' + esc(photoUrl(n)) + '" target="_blank" rel="noopener"><img src="' + esc(photoUrl(n)) + '" alt="" loading="lazy"></a>';
         }).join('') + '</div>' : '') +
         (t.comment ? '<div class="comment">💬 ' + esc(t.comment) + '</div>' : '') +
         (t.sent ? '<div class="sent">📤 ' + esc(t.sentTo || 'MAX') + (t.sentBy ? ' от ' + esc(t.sentBy) : '') + ' · ' + fmt(t.sent) + '</div>' : '') +

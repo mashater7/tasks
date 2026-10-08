@@ -304,8 +304,35 @@ function samePassword(a) {
   return y.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+// Защита от подбора пароля: 10 ошибок с одного адреса → пауза 15 минут.
+// Адрес берём из X-Real-IP: сервер слушает только 127.0.0.1, снаружи — через nginx.
+const FAIL_LIMIT = 10;
+const LOCK_MS = 15 * 60 * 1000;
+const fails = new Map();   // ip → { n, until }
+function clientIp(req) { return String(req.headers['x-real-ip'] || req.socket.remoteAddress || ''); }
+function isLocked(ip) {
+  const f = fails.get(ip);
+  return Boolean(f && f.until > Date.now());
+}
+function noteFail(ip) {
+  const f = fails.get(ip) || { n: 0, until: 0 };
+  f.n += 1;
+  if (f.n >= FAIL_LIMIT) { f.until = Date.now() + LOCK_MS; f.n = 0; }
+  fails.set(ip, f);
+}
+
+// Страница органайзера: та же, что на GitHub Pages, но со своего домена.
+const INDEX_FILE = [path.join(HERE, 'index.html'), path.join(HERE, '..', 'index.html')].find(f => fs.existsSync(f));
+
 export const server = http.createServer((req, res) => {
   const origin = req.headers.origin || '';
+  if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html') && INDEX_FILE) {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache',
+      'X-Robots-Tag': 'noindex, nofollow', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',
+    });
+    return fs.createReadStream(INDEX_FILE).pipe(res);
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : '',
@@ -332,8 +359,11 @@ export const server = http.createServer((req, res) => {
   req.on('end', async () => {
     let d;
     try { d = JSON.parse(raw); } catch (_) { return reply(res, origin, { ok: false, error: 'Плохой запрос' }); }
-    if (!samePassword(d.password)) return reply(res, origin, { ok: false, error: 'wrong_password' });
-    const fn = actions[d.action];
+    const ip = clientIp(req);
+    if (isLocked(ip)) return reply(res, origin, { ok: false, error: 'Слишком много неверных паролей. Подождите 15 минут.' });
+    if (!samePassword(d.password)) { noteFail(ip); return reply(res, origin, { ok: false, error: 'wrong_password' }); }
+    fails.delete(ip);
+    const fn = Object.hasOwn(actions, d.action) && actions[d.action];
     if (!fn) return reply(res, origin, { ok: false, error: 'Неизвестное действие' });
     try {
       const err = await fn(d);

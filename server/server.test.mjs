@@ -173,6 +173,27 @@ test('нет переписки с ботом — подсказка назыв�
   await api('deleteTask', { id: r.tasks.find(t => t.text === 'x').id });
 });
 
+test('страница отдаётся с запретом индексации', async () => {
+  const r = await fetch(base + '/');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('x-robots-tag'), /noindex/);
+  assert.match(await r.text(), /<title>Задачи<\/title>/);
+});
+
+test('10 неверных паролей с одного адреса — пауза, другой адрес не страдает', async () => {
+  const post = (password, ip) => fetch(base, {
+    method: 'POST', headers: { 'X-Real-IP': ip },
+    body: JSON.stringify({ action: 'list', password }),
+  }).then(r => r.json());
+  for (let i = 0; i < 10; i++) assert.equal((await post('bad', '9.9.9.9')).error, 'wrong_password');
+  assert.match((await post('pw', '9.9.9.9')).error, /Подождите 15 минут/, 'даже верный пароль ждёт');
+  assert.equal((await post('pw', '8.8.8.8')).ok, true);
+});
+
+test('служебные свойства объекта не считаются действиями', async () => {
+  assert.equal((await api('constructor')).error, 'Неизвестное действие');
+});
+
 test('переименование бота', async () => {
   const s = await api('list');
   const r = await api('renameBoard', { id: s.boards[0].id, name: 'ПризКитбот 2' });
