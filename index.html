@@ -45,6 +45,14 @@
   .card .text{white-space:pre-wrap;word-break:break-word}
   .comment{white-space:pre-wrap;word-break:break-word;font-size:13px;margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--panel)}
   .sent{font-size:12px;color:var(--ok);margin-top:6px}
+  .photos{display:flex;gap:6px;flex-wrap:wrap}
+  .photos:empty{display:none}
+  .card .photos{margin-top:8px}
+  .ph{position:relative;display:block;width:64px;height:64px;border-radius:6px;overflow:hidden;border:1px solid var(--border);background:var(--panel)}
+  .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .ph button{position:absolute;top:2px;right:2px;padding:0 6px;font-size:12px;line-height:18px;border-radius:999px}
+  .addphoto{display:inline-block;margin-top:8px;cursor:pointer;color:var(--accent);font-size:14px}
+  .hint-inline{color:var(--muted);font-size:12px}
   .meta{font-size:12px;color:var(--muted);margin-top:6px}
   .actions{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
   .actions button{padding:2px 9px;font-size:13px}
@@ -101,7 +109,7 @@
     <h3 id="taskTitle">Новая задача</h3>
     <label for="tText">Что нужно сделать</label>
     <textarea id="tText" required></textarea>
-    <label for="tCat">Тема</label>
+    <label for="tCat">Доска</label>
     <select id="tCat"></select>
     <div id="authorWrap">
       <label for="tAuthor">Кто добавляет</label>
@@ -111,22 +119,28 @@
       <label for="tStatus">Статус</label>
       <select id="tStatus"></select>
     </div>
+    <label>Фото <span class="hint-inline">(до 5 штук)</span></label>
+    <div class="photos" id="tPhotos"></div>
+    <label class="addphoto"><input type="file" id="tFile" accept="image/*" multiple hidden>📎 Прикрепить фото</label>
+    <div class="msg" id="tMsg"></div>
     <div class="row">
       <button type="button" data-close>Отмена</button>
-      <button type="submit" class="primary">Сохранить</button>
+      <button type="submit" data-send="">Сохранить</button>
+      <button type="submit" class="primary send-now" data-send="me">Сохранить и 👤 Мне</button>
+      <button type="submit" class="primary send-now" data-send="work">Сохранить и 👥 В «БОТ РАБОЧИЙ»</button>
     </div>
   </form>
 </div>
 
-<!-- Отчёт «что сделано» -->
+<!-- Отправка в MAX (из любой колонки) -->
 <div class="modal-bg" id="reportModal">
   <form class="modal" id="reportForm">
-    <h3>Что сделано?</h3>
-    <p class="hint">Комментарий сохранится в задаче и уйдёт в MAX от бота «Приз» — выбери куда.</p>
+    <h3 id="rTitle">Что сделано?</h3>
+    <p class="hint">Задача с фото и комментарием уйдёт в MAX от бота Приз_КитБот — выбери куда.</p>
     <div class="quote" id="rTask"></div>
     <label for="rComment">Комментарий</label>
     <textarea id="rComment" placeholder="Например: добавила кнопку «Участвовать», проверила на тестовом канале"></textarea>
-    <label for="rName">Кто сделал</label>
+    <label for="rName" id="rNameLabel">Кто сделал</label>
     <input id="rName" maxlength="60" placeholder="Имя">
     <div class="msg" id="rMsg"></div>
     <div class="row">
@@ -137,14 +151,14 @@
   </form>
 </div>
 
-<!-- Темы бота -->
+<!-- Доски бота -->
 <div class="modal-bg" id="catModal">
   <div class="modal">
-    <h3 id="catTitle">Темы</h3>
-    <p class="hint">Темы делят задачи бота: структура, тексты, рассылки и так далее.</p>
+    <h3 id="catTitle">Доски</h3>
+    <p class="hint">Доски делят задачи бота: структура, тексты, рассылки и так далее.</p>
     <div id="catList"></div>
     <form class="inline" id="catForm">
-      <input id="catName" maxlength="40" placeholder="Новая тема">
+      <input id="catName" maxlength="40" placeholder="Новая доска">
       <button type="submit" class="primary">Добавить</button>
     </form>
     <div class="row"><button type="button" data-close>Готово</button></div>
@@ -167,7 +181,7 @@ const CAT_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b
 let state = { boards: [], categories: [], tasks: [] };
 let password = store('tracker_pw') || '';
 let currentBoard = store('tracker_board') || '';
-let currentCat = '';          // '' — все, '_none' — без темы
+let currentCat = '';          // '' — все, '_none' — без доски
 let editingId = null;
 let reportId = null;
 
@@ -257,7 +271,7 @@ function render() {
     return '<button class="tab' + (b.id === currentBoard ? ' active' : '') + '" data-id="' + esc(b.id) + '">' + esc(b.name) + '</button>';
   }).join('');
 
-  // темы
+  // доски
   const boardTasks = state.tasks.filter(function (t) { return t.board === currentBoard; });
   const noCat = boardTasks.filter(function (t) { return !isCat(t.category); }).length;
   let chips = '<button class="chip' + (currentCat === '' ? ' active' : '') + '" data-cat="">Все<span class="n">' + boardTasks.length + '</span></button>';
@@ -267,9 +281,9 @@ function render() {
       esc(c.name) + '<span class="n">' + n + '</span></button>';
   });
   if (noCat && cats.length) {
-    chips += '<button class="chip' + (currentCat === '_none' ? ' active' : '') + '" data-cat="_none">Без темы<span class="n">' + noCat + '</span></button>';
+    chips += '<button class="chip' + (currentCat === '_none' ? ' active' : '') + '" data-cat="_none">Без доски<span class="n">' + noCat + '</span></button>';
   }
-  if (currentBoard) chips += '<button class="chip ghost" data-act="cats">⚙ Темы</button>';
+  if (currentBoard) chips += '<button class="chip ghost" data-act="cats">⚙ Доски</button>';
   $('#cats').innerHTML = chips;
 
   // колонки
@@ -288,13 +302,16 @@ function render() {
       return '<div class="card" draggable="true" data-id="' + esc(t.id) + '" style="--c:' + s.color + '">' +
         (cat ? '<span class="tag" style="--t:' + catColor(cat.id) + '">' + esc(cat.name) + '</span>' : '') +
         '<div class="text">' + esc(t.text) + '</div>' +
+        (t.photos && t.photos.length ? '<div class="photos">' + t.photos.map(function (n) {
+          return '<a class="ph" href="' + photoUrl(n) + '" target="_blank" rel="noopener"><img src="' + photoUrl(n) + '" alt="" loading="lazy"></a>';
+        }).join('') + '</div>' : '') +
         (t.comment ? '<div class="comment">💬 ' + esc(t.comment) + '</div>' : '') +
         (t.sent ? '<div class="sent">📤 Отправлено: ' + esc(t.sentTo || 'MAX') + ' · ' + fmt(t.sent) + '</div>' : '') +
         '<div class="meta">' + esc(t.author) + ' · ' + fmt(t.created) + '</div>' +
         '<div class="actions">' +
           (i > 0 ? '<button data-act="prev" title="Назад">←</button>' : '') +
           (i < STATUSES.length - 1 ? '<button data-act="next" title="Вперёд">→</button>' : '') +
-          (t.status === 'done' ? '<button data-act="report" title="Отправить отчёт в MAX">📤</button>' : '') +
+          '<button data-act="report" title="Отправить в MAX">📤</button>' +
           '<button data-act="edit" title="Изменить">✎</button>' +
           '<button data-act="del" class="danger" title="Удалить">✕</button>' +
         '</div></div>';
@@ -402,14 +419,70 @@ $('#tStatus').innerHTML = STATUSES.map(function (s) {
 
 function fillCatSelect(value) {
   const cats = boardCats(currentBoard);
-  $('#tCat').innerHTML = '<option value="">Без темы</option>' + cats.map(function (c) {
+  $('#tCat').innerHTML = '<option value="">Без доски</option>' + cats.map(function (c) {
     return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
   }).join('');
   $('#tCat').value = cats.some(function (c) { return c.id === value; }) ? value : '';
 }
 
+// ---------- Фото ----------
+// formPhotos: уже сохранённые { name } и новые { data } (сжатый JPEG в data:URL).
+let formPhotos = [];
+let removedPhotos = [];
+function photoUrl(name) { return API_URL + 'photo/' + encodeURIComponent(name); }
+
+// Сжимаем до 1600px по большей стороне — фото с телефона весят 3–8 МБ.
+function compressImage(file) {
+  return new Promise(function (resolve, reject) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function () {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('не картинка')); };
+    img.src = url;
+  });
+}
+
+function renderFormPhotos() {
+  $('#tPhotos').innerHTML = formPhotos.map(function (p, i) {
+    return '<span class="ph"><img src="' + (p.data || photoUrl(p.name)) + '" alt="">' +
+      '<button type="button" data-rm="' + i + '" title="Убрать">✕</button></span>';
+  }).join('');
+}
+
+$('#tFile').addEventListener('change', async function (e) {
+  const files = Array.prototype.slice.call(e.target.files || []);
+  e.target.value = '';
+  for (const f of files) {
+    if (formPhotos.length >= 5) { $('#tMsg').textContent = 'Не больше 5 фото'; break; }
+    try { formPhotos.push({ data: await compressImage(f) }); }
+    catch (err) { $('#tMsg').textContent = 'Не получилось прочитать «' + f.name + '»'; }
+  }
+  renderFormPhotos();
+});
+
+$('#tPhotos').addEventListener('click', function (e) {
+  const b = e.target.closest('button[data-rm]');
+  if (!b) return;
+  const p = formPhotos.splice(Number(b.dataset.rm), 1)[0];
+  if (p && p.name) removedPhotos.push(p.name);
+  renderFormPhotos();
+});
+
 function openTask(t) {
   editingId = t ? t.id : null;
+  formPhotos = t && t.photos ? t.photos.map(function (n) { return { name: n }; }) : [];
+  removedPhotos = [];
+  renderFormPhotos();
+  $('#tMsg').textContent = '';
+  document.querySelectorAll('#taskForm .send-now').forEach(function (b) { b.style.display = t ? 'none' : ''; });
   $('#taskTitle').textContent = t ? 'Изменить задачу' : 'Новая задача';
   $('#tText').value = t ? t.text : '';
   $('#tAuthor').value = store('tracker_author') || '';
@@ -426,30 +499,44 @@ $('#btnAddTask').addEventListener('click', function () {
   openTask(null);
 });
 
-$('#taskForm').addEventListener('submit', function (e) {
+$('#taskForm').addEventListener('submit', async function (e) {
   e.preventDefault();
   const text = $('#tText').value.trim();
   if (!text) return;
   const category = $('#tCat').value;
+  const newPhotos = formPhotos.filter(function (p) { return p.data; }).map(function (p) { return p.data; });
   if (editingId) {
     const t = findTask(editingId);
     const status = $('#tStatus').value;
     const wasDone = t && t.status === 'done';
     if (t) { t.text = text; t.status = status; t.category = category; render(); }
-    api('updateTask', { id: editingId, text: text, status: status, category: category });
     hide('#taskModal');
     if (t && status === 'done' && !wasDone) openReport(t);
+    api('updateTask', { id: editingId, text: text, status: status, category: category,
+      addPhotos: newPhotos, removePhotos: removedPhotos });
   } else {
     const author = $('#tAuthor').value.trim();
+    const sendTo = (e.submitter && e.submitter.dataset.send) || '';
     store('tracker_author', author);
-    api('addTask', { board: currentBoard, category: category, text: text, author: author });
+    const buttons = document.querySelectorAll('#taskForm button[type=submit]');
+    buttons.forEach(function (b) { b.disabled = true; });
+    $('#tMsg').textContent = sendTo ? 'Сохраняю и отправляю…' : (newPhotos.length ? 'Загружаю фото…' : '');
+    const j = await api('addTask', { board: currentBoard, category: category, text: text, author: author,
+      photos: newPhotos, sendTo: sendTo });
+    buttons.forEach(function (b) { b.disabled = false; });
     hide('#taskModal');
+    if (j.ok && sendTo) setStatus(sendTo === 'work' ? 'Задача отправлена в «БОТ РАБОЧИЙ»' : 'Задача отправлена вам в MAX');
+    if (!j.ok && j.error !== 'wrong_password') alert(j.error);
   }
 });
 
 // ---------- Отчёт «что сделано» ----------
 function openReport(t) {
   reportId = t.id;
+  const done = t.status === 'done' || t.status === 'tested';
+  $('#rTitle').textContent = done ? 'Что сделано?' : 'Отправить в MAX';
+  $('#rNameLabel').textContent = done ? 'Кто сделал' : 'Кто отправляет';
+  $('#rComment').placeholder = done ? 'Например: добавила кнопку «Участвовать», проверила на тестовом канале' : 'Необязательно';
   $('#rTask').textContent = t.text;
   $('#rComment').value = t.comment || '';
   $('#rName').value = store('tracker_author') || '';
@@ -477,7 +564,8 @@ $('#rSkip').addEventListener('click', function () {
 $('#reportForm').addEventListener('submit', async function (e) {
   e.preventDefault();
   const c = $('#rComment').value.trim();
-  if (!c) { $('#rMsg').textContent = 'Напиши, что сделано'; return; }
+  const t = findTask(reportId);
+  if (!c && t && t.status === 'done') { $('#rMsg').textContent = 'Напиши, что сделано'; return; }
   const name = $('#rName').value.trim();
   store('tracker_author', name);
   const target = (e.submitter && e.submitter.dataset.target) || 'me';
@@ -493,7 +581,7 @@ $('#reportForm').addEventListener('submit', async function (e) {
   }
 });
 
-// ---------- Темы бота ----------
+// ---------- Доски бота ----------
 function openCats() {
   renderCatList();
   $('#catName').value = '';
@@ -502,14 +590,14 @@ function openCats() {
 
 function renderCatList() {
   const b = state.boards.find(function (x) { return x.id === currentBoard; });
-  $('#catTitle').textContent = 'Темы: ' + (b ? b.name : '');
+  $('#catTitle').textContent = 'Доски: ' + (b ? b.name : '');
   const cats = boardCats(currentBoard);
   $('#catList').innerHTML = cats.length ? cats.map(function (c) {
     return '<div class="cat-row" data-id="' + esc(c.id) + '">' +
       '<span class="name"><span class="dot" style="--t:' + catColor(c.id) + '"></span>' + esc(c.name) + '</span>' +
       '<button data-act="rename" title="Переименовать">✎</button>' +
       '<button data-act="delete" class="danger" title="Удалить">✕</button></div>';
-  }).join('') : '<div class="empty">Тем пока нет</div>';
+  }).join('') : '<div class="empty">Досок пока нет</div>';
 }
 
 $('#catList').addEventListener('click', function (e) {
@@ -519,10 +607,10 @@ $('#catList').addEventListener('click', function (e) {
   const c = state.categories.find(function (x) { return x.id === id; });
   if (!c) return;
   if (btn.dataset.act === 'rename') {
-    const name = (prompt('Новое название темы', c.name) || '').trim();
+    const name = (prompt('Новое название доски', c.name) || '').trim();
     if (name && name !== c.name) api('renameCategory', { id: id, name: name });
   }
-  if (btn.dataset.act === 'delete' && confirm('Удалить тему «' + c.name + '»? Задачи останутся, но без темы.')) {
+  if (btn.dataset.act === 'delete' && confirm('Удалить доску «' + c.name + '»? Задачи останутся, но без доски.')) {
     api('deleteCategory', { id: id });
   }
 });

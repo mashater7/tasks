@@ -9,14 +9,18 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-test-'));
 const sent = [];
 let maxFails = false;
+let maxReply = null;
 const fakeMax = http.createServer((req, res) => {
   let b = '';
   req.on('data', c => { b += c; });
   req.on('end', () => {
+    const json = o => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (req.url === '/uploads?type=image') return json({ url: 'http://127.0.0.1:' + fakeMax.address().port + '/upload' });
+    if (req.url === '/upload') return json({ photos: { a: { token: 'imgtok' } } });
     sent.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b) });
+    if (maxReply) { res.writeHead(maxReply.status); return res.end(maxReply.body); }
     if (maxFails) { res.writeHead(200); return res.end('{"success":false}'); }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"message":{"body":{"mid":"x"}}}');
+    json({ message: { body: { mid: 'x' } } });
   });
 });
 
@@ -52,7 +56,7 @@ test('неверный пароль', async () => {
 
 test('по умолчанию три бота, задачи добавляются и двигаются', async () => {
   const s = await api('list');
-  assert.deepEqual(s.boards.map(b => b.name), ['Приз', 'Антибот', 'СтопСпам']);
+  assert.deepEqual(s.boards.map(b => b.name), ['Приз_КитБот', 'Антибот_КитБот', 'СтопСпам_КитБот']);
   const board = s.boards[0].id;
   const c = await api('addCategory', { board, name: 'Тексты' });
   const cat = c.categories[0].id;
@@ -72,9 +76,9 @@ test('отчёт «Мне» уходит в личку по user_id', async () =
   const m = sent.at(-1);
   assert.equal(m.url, '/messages?user_id=777');
   assert.equal(m.auth, 'tok123');
-  assert.match(m.body.text, /Сделано — Приз · Тексты/);
+  assert.match(m.body.text, /^✅ Сделано — Приз_КитБот · Тексты/);
   assert.match(m.body.text, /Задача: Поменять кнопку/);
-  assert.match(m.body.text, /Что сделано: Поменяла/);
+  assert.match(m.body.text, /Комментарий: Поменяла/);
   assert.equal(r.tasks[0].sentTo, 'Мне');
 });
 
@@ -94,6 +98,50 @@ test('MAX ответил без message — ошибка, но коммента�
   assert.equal(r.ok, false);
   assert.match(r.error, /MAX не принял/);
   assert.equal(r.tasks[0].comment, 'Новый коммент');
+});
+
+test('dialog.suspended — понятная подсказка вместо 403', async () => {
+  maxReply = { status: 403, body: '{"code":"chat.denied","message":"Key: error.dialog.suspended, args: [777,]."}' };
+  const t = (await api('list')).tasks[0];
+  const r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  maxReply = null;
+  assert.equal(r.ok, false);
+  assert.match(r.error, /нажмите «Начать»/);
+});
+
+test('отправка из любой колонки: заголовок по статусу, комментарий необязателен', async () => {
+  const t = (await api('list')).tasks[0];
+  await api('updateTask', { id: t.id, status: 'in_progress' });
+  const r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  assert.equal(r.ok, true);
+  assert.match(sent.at(-1).body.text, /^🔧 В работе/);
+  assert.doesNotMatch(sent.at(-1).body.text, /Комментарий/);
+});
+
+test('новая задача с фото и «сразу отправить» — фото загружается в MAX и уходит вложением', async () => {
+  const s = await api('list');
+  const png = 'data:image/png;base64,' + Buffer.from('fakepng').toString('base64');
+  const r = await api('addTask', { board: s.boards[1].id, text: 'С фото', author: 'Оля', photos: [png], sendTo: 'work' });
+  assert.equal(r.ok, true);
+  const t = r.tasks.find(x => x.text === 'С фото');
+  assert.equal(t.photos.length, 1);
+  assert.equal(t.sentTo, 'БОТ РАБОЧИЙ');
+  const m = sent.at(-1);
+  assert.equal(m.url, '/messages?chat_id=-555');
+  assert.match(m.body.text, /^🆕 Новая задача — Антибот_КитБот/);
+  assert.deepEqual(m.body.attachments, [{ type: 'image', payload: { token: 'imgtok' } }]);
+  const img = await fetch(base + '/photo/' + t.photos[0]);
+  assert.equal(img.status, 200);
+  assert.equal(await img.text(), 'fakepng');
+  const d = await api('deleteTask', { id: t.id });
+  assert.equal(d.ok, true);
+  assert.equal((await fetch(base + '/photo/' + t.photos[0])).status, 404, 'файл фото удалён вместе с задачей');
+});
+
+test('переименование бота', async () => {
+  const s = await api('list');
+  const r = await api('renameBoard', { id: s.boards[0].id, name: 'Приз_КитБот 2' });
+  assert.equal(r.boards[0].name, 'Приз_КитБот 2');
 });
 
 test('удаление темы оставляет задачу без темы', async () => {
