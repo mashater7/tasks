@@ -85,7 +85,7 @@
   input,textarea,select{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)}
   textarea{min-height:110px;resize:vertical}
   .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
-  .msg{color:var(--danger);font-size:13px;min-height:18px;margin-top:8px}
+  .msg{color:var(--danger);font-size:15px;font-weight:600;min-height:18px;margin-top:8px}
   .cat-row{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)}
   .cat-row .name{flex:1;display:flex;align-items:center;gap:8px}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--t);flex:none}
@@ -682,11 +682,14 @@ $('#taskForm').addEventListener('submit', async function (e) {
     store('tracker_author', author);
     if (sendTo) store('tracker_target', sendTo);
     const buttons = document.querySelectorAll('#taskForm button[type=submit]');
-    buttons.forEach(function (b) { b.disabled = true; });
-    $('#tMsg').textContent = sendTo ? 'Сохраняю и отправляю…' : (newPhotos.length ? 'Загружаю фото…' : '');
+    buttons.forEach(function (b) {
+      if (b === e.submitter) setBusy(b, true, sendTo ? '⏳ Отправляю…' : '⏳ Сохраняю…');
+      else b.disabled = true;
+    });
+    $('#tMsg').textContent = '';
     const j = await api('addTask', { board: currentBoard, category: category, text: text, author: author,
       photos: newPhotos, sendTo: sendTo });
-    buttons.forEach(function (b) { b.disabled = false; });
+    buttons.forEach(function (b) { setBusy(b, false); });
     hide('#taskModal');
     if (j.ok && sendTo) setStatus('Задача отправлена ' + WHO_TEXT[sendTo]);
     if (!j.ok && j.error !== 'wrong_password') alert(j.error);
@@ -718,8 +721,21 @@ function openReport(t) {
   $('#rComment').focus();
 }
 
+// Пока идёт отправка, на самой кнопке видно «⏳ Отправляю…» — иначе кажется, что она не нажалась.
+function setBusy(btn, busy, text) {
+  if (busy) {
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    btn.textContent = text || '⏳ Отправляю…';
+  } else if (btn.dataset.label) {
+    btn.textContent = btn.dataset.label;
+    delete btn.dataset.label;
+  }
+  btn.disabled = busy;
+}
+
 function setSendDisabled(v) {
-  $('#rSend').disabled = v;
+  setBusy($('#rSend'), v);
+  $('#rSkip').disabled = v;
 }
 
 $('#rSkip').addEventListener('click', function () {
@@ -745,7 +761,7 @@ $('#reportForm').addEventListener('submit', async function (e) {
   const target = getWho('rWho');
   store('tracker_target', target);
   setSendDisabled(true);
-  $('#rMsg').textContent = 'Отправляю…';
+  $('#rMsg').textContent = '';
   const j = await api('sendReport', { id: reportId, comment: c, reporter: name, target: target });
   setSendDisabled(false);
   if (j.ok) {
