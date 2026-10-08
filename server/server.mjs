@@ -217,7 +217,9 @@ export const server = http.createServer((req, res) => {
   });
 });
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Под PM2 process.argv[1] — его обёртка, поэтому «запущен ли напрямую» не проверяем:
+// слушаем всегда, кроме тестов (они ставят TASKS_NO_LISTEN и слушают сами).
+if (!process.env.TASKS_NO_LISTEN) {
   server.listen(PORT, HOST, () => {
     console.log('[tasks] слушаю ' + HOST + ':' + PORT + ', данные: ' + DATA_FILE +
       ', отправка: ' + (BOT_TOKEN ? 'ключ есть' : 'КЛЮЧА НЕТ') + ', work=' + (TARGETS.work.id || '—'));

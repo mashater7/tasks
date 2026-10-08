@@ -30,6 +30,7 @@ before(async () => {
     maxApi: 'http://127.0.0.1:' + fakeMax.address().port,
   }));
   process.env.TASKS_CONFIG = path.join(dir, 'config.json');
+  process.env.TASKS_NO_LISTEN = '1';
   ({ server } = await import('./server.mjs'));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
