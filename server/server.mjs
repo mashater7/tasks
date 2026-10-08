@@ -38,7 +38,7 @@ const TARGETS = {
 };
 
 // ---------- Хранилище ----------
-const DEFAULT_BOARDS = ['Приз_КитБот', 'Антибот_КитБот', 'СтопСпам_КитБот'];
+const DEFAULT_BOARDS = ['ПризКитбот', 'Антибот_КитБот', 'СтопСпам_КитБот'];
 const STATUSES = ['new', 'seen', 'in_progress', 'done', 'tested'];
 const STATUS_TITLES = {
   new: '🆕 Новая задача', seen: '👀 Просмотрено', in_progress: '🔧 В работе',
@@ -138,7 +138,7 @@ async function uploadPhoto(name) {
 function maxError(r) {
   const s = (r.j && (r.j.message || r.j.code)) || r.txt || '';
   if (/dialog\.suspended/.test(s)) {
-    return 'Переписка с ботом Приз_КитБот остановлена. Откройте бота в MAX, нажмите «Начать» и отправьте ещё раз.';
+    return 'Переписка с ботом ПризКитбот остановлена. Откройте бота в MAX, нажмите «Начать» и отправьте ещё раз.';
   }
   return 'MAX не принял сообщение (' + r.status + ')';
 }

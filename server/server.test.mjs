@@ -56,7 +56,7 @@ test('неверный пароль', async () => {
 
 test('по умолчанию три бота, задачи добавляются и двигаются', async () => {
   const s = await api('list');
-  assert.deepEqual(s.boards.map(b => b.name), ['Приз_КитБот', 'Антибот_КитБот', 'СтопСпам_КитБот']);
+  assert.deepEqual(s.boards.map(b => b.name), ['ПризКитбот', 'Антибот_КитБот', 'СтопСпам_КитБот']);
   const board = s.boards[0].id;
   const c = await api('addCategory', { board, name: 'Тексты' });
   const cat = c.categories[0].id;
@@ -76,7 +76,7 @@ test('отчёт «Мне» уходит в личку по user_id', async () =
   const m = sent.at(-1);
   assert.equal(m.url, '/messages?user_id=777');
   assert.equal(m.auth, 'tok123');
-  assert.match(m.body.text, /^✅ Сделано — Приз_КитБот · Тексты/);
+  assert.match(m.body.text, /^✅ Сделано — ПризКитбот · Тексты/);
   assert.match(m.body.text, /Задача: Поменять кнопку/);
   assert.match(m.body.text, /Комментарий: Поменяла/);
   assert.equal(r.tasks[0].sentTo, 'Мне');
@@ -140,8 +140,8 @@ test('новая задача с фото и «сразу отправить» �
 
 test('переименование бота', async () => {
   const s = await api('list');
-  const r = await api('renameBoard', { id: s.boards[0].id, name: 'Приз_КитБот 2' });
-  assert.equal(r.boards[0].name, 'Приз_КитБот 2');
+  const r = await api('renameBoard', { id: s.boards[0].id, name: 'ПризКитбот 2' });
+  assert.equal(r.boards[0].name, 'ПризКитбот 2');
 });
 
 test('удаление темы оставляет задачу без темы', async () => {
