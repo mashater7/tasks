@@ -84,7 +84,7 @@ test('отчёт «Мне» уходит в личку по user_id', async () =
   assert.match(m.body.text, /^✅ Сделано — ПризКитбот · Тексты/);
   assert.match(m.body.text, /Задача: Поменять кнопку/);
   assert.match(m.body.text, /Комментарий: Поменяла/);
-  assert.equal(r.tasks[0].sentTo, 'Мне');
+  assert.equal(r.tasks[0].sentTo, 'Маше');
 });
 
 test('отчёт в «БОТ РАБОЧИЙ» уходит в канал из .env бота', async () => {

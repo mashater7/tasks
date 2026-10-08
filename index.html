@@ -128,7 +128,7 @@
     <div class="row">
       <button type="button" data-close>Отмена</button>
       <button type="submit" data-send="">Сохранить</button>
-      <button type="submit" class="primary send-now" data-send="me">Сохранить и 👤 Мне</button>
+      <button type="submit" class="primary send-now" data-send="me">Сохранить и 👤 Маше</button>
       <button type="submit" class="primary send-now" data-send="work">Сохранить и 👥 В «БОТ РАБОЧИЙ»</button>
     </div>
   </form>
@@ -147,7 +147,7 @@
     <div class="msg" id="rMsg"></div>
     <div class="row">
       <button type="button" id="rSkip">Без отправки</button>
-      <button type="submit" class="primary" data-target="me">👤 Мне</button>
+      <button type="submit" class="primary" data-target="me">👤 Маше</button>
       <button type="submit" class="primary" data-target="work">👥 В «БОТ РАБОЧИЙ»</button>
     </div>
   </form>
@@ -534,7 +534,7 @@ $('#taskForm').addEventListener('submit', async function (e) {
       photos: newPhotos, sendTo: sendTo });
     buttons.forEach(function (b) { b.disabled = false; });
     hide('#taskModal');
-    if (j.ok && sendTo) setStatus(sendTo === 'work' ? 'Задача отправлена в «БОТ РАБОЧИЙ»' : 'Задача отправлена вам в MAX');
+    if (j.ok && sendTo) setStatus(sendTo === 'work' ? 'Задача отправлена в «БОТ РАБОЧИЙ»' : 'Задача отправлена Маше');
     if (!j.ok && j.error !== 'wrong_password') alert(j.error);
   }
 });
@@ -585,7 +585,7 @@ $('#reportForm').addEventListener('submit', async function (e) {
   setSendDisabled(false);
   if (j.ok) {
     hide('#reportModal');
-    setStatus(target === 'work' ? 'Отчёт отправлен в «БОТ РАБОЧИЙ»' : 'Отчёт отправлен вам в MAX');
+    setStatus(target === 'work' ? 'Отчёт отправлен в «БОТ РАБОЧИЙ»' : 'Отчёт отправлен Маше');
   } else {
     $('#rMsg').textContent = 'Не отправилось: ' + j.error + '. Комментарий сохранён.';
   }

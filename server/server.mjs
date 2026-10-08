@@ -52,7 +52,7 @@ function botForTask(t) {
 }
 
 const TARGETS = {
-  me: { label: 'Мне', param: 'user_id', id: String(config.meUserId || '') },
+  me: { label: 'Маше', param: 'user_id', id: String(config.meUserId || '') },
   work: { label: 'БОТ РАБОЧИЙ', param: 'chat_id', id: String(config.workChatId || botEnv.PROMO_NOTIFY_CHANNEL_ID || '') },
 };
 
@@ -72,7 +72,9 @@ function newId() { return crypto.randomBytes(6).toString('hex'); }
 function loadState() {
   try {
     const s = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return { boards: s.boards || [], categories: s.categories || [], tasks: s.tasks || [] };
+    const tasks = s.tasks || [];
+    tasks.forEach(t => { if (t.sentTo === 'Мне') t.sentTo = 'Маше'; });   // кнопку «Мне» переименовали в «Маше»
+    return { boards: s.boards || [], categories: s.categories || [], tasks };
   } catch (e) {
     if (e.code !== 'ENOENT') throw e;
     return { boards: DEFAULT_BOARDS.map(name => ({ id: newId(), name })), categories: [], tasks: [] };
