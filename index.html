@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Задачи</title>
+<style>
+  :root{
+    --bg:#f4f5f7;--panel:#ebecf0;--card:#fff;--text:#1f2328;--muted:#6b7280;
+    --border:#dcdfe4;--accent:#4f46e5;--accent-text:#fff;--danger:#dc2626;--ok:#16a34a;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181d;--panel:#1f2228;--card:#2a2e36;--text:#e6e8eb;--muted:#9aa1ab;
+      --border:#343a44;--accent:#818cf8;--accent-text:#111;--danger:#f87171;--ok:#4ade80;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
+  header{display:flex;align-items:center;gap:10px;padding:14px 16px;flex-wrap:wrap}
+  h1{font-size:20px;margin:0;margin-right:auto}
+  #status{font-size:13px;color:var(--muted)}
+  #status.error{color:var(--danger)}
+  button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:6px 12px}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.6;cursor:wait}
+  button.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+  button.danger{color:var(--danger)}
+  .tabs{display:flex;gap:6px;padding:0 16px;overflow-x:auto}
+  .tab{white-space:nowrap}
+  .tab.active{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+  .cats{display:flex;gap:6px;padding:10px 16px 0;overflow-x:auto;align-items:center}
+  .chip{white-space:nowrap;border-radius:999px;padding:3px 12px;font-size:13px;border-left:4px solid var(--c,var(--border))}
+  .chip.active{background:var(--panel);border-color:var(--c,var(--accent));font-weight:600}
+  .chip .n{color:var(--muted);margin-left:4px;font-weight:400}
+  .chip.ghost{border-left-width:1px;color:var(--muted)}
+  .board{display:grid;grid-template-columns:repeat(5,minmax(230px,1fr));gap:12px;padding:16px;overflow-x:auto;align-items:start}
+  .col{background:var(--panel);border-radius:10px;padding:10px;min-height:160px;border-top:4px solid var(--c)}
+  .col.over{outline:2px dashed var(--accent)}
+  .col h2{font-size:14px;margin:2px 2px 10px;display:flex;justify-content:space-between;align-items:center}
+  .count{font-weight:400;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--c);border-radius:8px;padding:10px;margin-bottom:8px;cursor:grab}
+  .card.dragging{opacity:.4}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-bottom:6px;color:#fff;background:var(--t)}
+  .card .text{white-space:pre-wrap;word-break:break-word}
+  .comment{white-space:pre-wrap;word-break:break-word;font-size:13px;margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--panel)}
+  .sent{font-size:12px;color:var(--ok);margin-top:6px}
+  .meta{font-size:12px;color:var(--muted);margin-top:6px}
+  .actions{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+  .actions button{padding:2px 9px;font-size:13px}
+  .empty{font-size:13px;color:var(--muted);text-align:center;padding:12px 0}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+  .modal-bg.show{display:flex}
+  .modal{background:var(--card);border-radius:12px;padding:20px;width:100%;max-width:460px;max-height:90vh;overflow:auto}
+  .modal h3{margin:0 0 6px}
+  .modal label{display:block;margin:12px 0 4px;font-size:13px;color:var(--muted)}
+  .hint{font-size:13px;color:var(--muted);margin:0 0 12px}
+  .quote{white-space:pre-wrap;word-break:break-word;font-size:14px;padding:8px 10px;border-left:3px solid var(--accent);background:var(--panel);border-radius:6px}
+  input,textarea,select{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)}
+  textarea{min-height:110px;resize:vertical}
+  .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+  .msg{color:var(--danger);font-size:13px;min-height:18px;margin-top:8px}
+  .cat-row{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .cat-row .name{flex:1;display:flex;align-items:center;gap:8px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--t);flex:none}
+  .cat-row button{padding:2px 9px;font-size:13px}
+  .inline{display:flex;gap:8px;margin-top:12px}
+  .inline button{flex:none}
+  @media (max-width:640px){
+    header{padding:12px}
+    .board{padding:12px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Задачи</h1>
+  <span id="status"></span>
+  <button id="btnAddBoard">+ Бот</button>
+  <button id="btnAddTask" class="primary">+ Задача</button>
+</header>
+<nav class="tabs" id="tabs"></nav>
+<nav class="cats" id="cats"></nav>
+<main class="board" id="board"></main>
+
+<!-- Вход -->
+<div class="modal-bg" id="loginModal">
+  <form class="modal" id="loginForm">
+    <h3>Вход</h3>
+    <label for="pw">Пароль</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <div class="msg" id="loginMsg"></div>
+    <div class="row"><button class="primary" type="submit">Войти</button></div>
+  </form>
+</div>
+
+<!-- Задача -->
+<div class="modal-bg" id="taskModal">
+  <form class="modal" id="taskForm">
+    <h3 id="taskTitle">Новая задача</h3>
+    <label for="tText">Что нужно сделать</label>
+    <textarea id="tText" required></textarea>
+    <label for="tCat">Тема</label>
+    <select id="tCat"></select>
+    <div id="authorWrap">
+      <label for="tAuthor">Кто добавляет</label>
+      <input id="tAuthor" maxlength="60" placeholder="Имя">
+    </div>
+    <div id="statusWrap">
+      <label for="tStatus">Статус</label>
+      <select id="tStatus"></select>
+    </div>
+    <div class="row">
+      <button type="button" data-close>Отмена</button>
+      <button type="submit" class="primary">Сохранить</button>
+    </div>
+  </form>
+</div>
+
+<!-- Отчёт «что сделано» -->
+<div class="modal-bg" id="reportModal">
+  <form class="modal" id="reportForm">
+    <h3>Что сделано?</h3>
+    <p class="hint">Комментарий сохранится в задаче и уйдёт в MAX от бота «Приз» — выбери куда.</p>
+    <div class="quote" id="rTask"></div>
+    <label for="rComment">Комментарий</label>
+    <textarea id="rComment" placeholder="Например: добавила кнопку «Участвовать», проверила на тестовом канале"></textarea>
+    <label for="rName">Кто сделал</label>
+    <input id="rName" maxlength="60" placeholder="Имя">
+    <div class="msg" id="rMsg"></div>
+    <div class="row">
+      <button type="button" id="rSkip">Без отправки</button>
+      <button type="submit" class="primary" data-target="me">👤 Мне</button>
+      <button type="submit" class="primary" data-target="work">👥 В «БОТ РАБОЧИЙ»</button>
+    </div>
+  </form>
+</div>
+
+<!-- Темы бота -->
+<div class="modal-bg" id="catModal">
+  <div class="modal">
+    <h3 id="catTitle">Темы</h3>
+    <p class="hint">Темы делят задачи бота: структура, тексты, рассылки и так далее.</p>
+    <div id="catList"></div>
+    <form class="inline" id="catForm">
+      <input id="catName" maxlength="40" placeholder="Новая тема">
+      <button type="submit" class="primary">Добавить</button>
+    </form>
+    <div class="row"><button type="button" data-close>Готово</button></div>
+  </div>
+</div>
+
+<script>
+// ===== НАСТРОЙКА: вставь сюда ссылку на скрипт (заканчивается на /exec) =====
+const API_URL = 'https://lk.24kitbot.ru/tasks-api/';
+
+const STATUSES = [
+  { key: 'new',         label: 'Новая',          color: '#9ca3af' },
+  { key: 'seen',        label: 'Просмотрено',    color: '#0ea5e9' },
+  { key: 'in_progress', label: 'В работе',       color: '#f59e0b' },
+  { key: 'done',        label: 'Сделано',        color: '#22c55e' },
+  { key: 'tested',      label: 'Протестировано', color: '#8b5cf6' }
+];
+const CAT_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b6d4', '#e11d48', '#a855f7'];
+
+let state = { boards: [], categories: [], tasks: [] };
+let password = store('tracker_pw') || '';
+let currentBoard = store('tracker_board') || '';
+let currentCat = '';          // '' — все, '_none' — без темы
+let editingId = null;
+let reportId = null;
+
+const $ = function (s) { return document.querySelector(s); };
+
+function store(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem(k);
+    if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+  } catch (e) { return null; }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function fmt(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function setStatus(text, isError) {
+  const el = $('#status');
+  el.textContent = text;
+  el.className = isError ? 'error' : '';
+}
+
+function show(id) { $(id).classList.add('show'); }
+function hide(id) { $(id).classList.remove('show'); }
+function findTask(id) { return state.tasks.find(function (x) { return x.id === id; }); }
+function boardCats(b) { return state.categories.filter(function (c) { return c.board === b; }); }
+function catColor(id) {
+  const i = boardCats(currentBoard).findIndex(function (c) { return c.id === id; });
+  return CAT_COLORS[Math.max(i, 0) % CAT_COLORS.length];
+}
+
+// ---------- Связь с сервером ----------
+// Возвращает ответ сервера: { ok: true, ... } или { ok: false, error }
+async function api(action, data, silent) {
+  if (!silent) setStatus('Сохраняю…');
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action: action, password: password }, data || {}))
+    });
+    const j = await res.json();
+    if (!j.ok) {
+      const msg = j.error || 'Ошибка';
+      if (msg === 'wrong_password') {
+        password = '';
+        store('tracker_pw', null);
+        showLogin('Неверный пароль');
+      } else {
+        setStatus('Ошибка: ' + msg, true);
+        if (action !== 'list') load(true).then(function () { setStatus('Ошибка: ' + msg, true); });
+      }
+      return { ok: false, error: msg };
+    }
+    state.boards = j.boards || [];
+    state.categories = j.categories || [];
+    state.tasks = j.tasks || [];
+    render();
+    setStatus('Обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+    return j;
+  } catch (e) {
+    setStatus('Нет связи с сервером', true);
+    return { ok: false, error: 'Нет связи с сервером' };
+  }
+}
+
+function load(silent) { return api('list', {}, silent); }
+
+// ---------- Отрисовка ----------
+function render() {
+  if (!state.boards.some(function (b) { return b.id === currentBoard; })) {
+    currentBoard = state.boards.length ? state.boards[0].id : '';
+  }
+  const cats = boardCats(currentBoard);
+  const isCat = function (id) { return cats.some(function (c) { return c.id === id; }); };
+  if (currentCat && currentCat !== '_none' && !isCat(currentCat)) currentCat = '';
+
+  // вкладки ботов
+  $('#tabs').innerHTML = state.boards.map(function (b) {
+    return '<button class="tab' + (b.id === currentBoard ? ' active' : '') + '" data-id="' + esc(b.id) + '">' + esc(b.name) + '</button>';
+  }).join('');
+
+  // темы
+  const boardTasks = state.tasks.filter(function (t) { return t.board === currentBoard; });
+  const noCat = boardTasks.filter(function (t) { return !isCat(t.category); }).length;
+  let chips = '<button class="chip' + (currentCat === '' ? ' active' : '') + '" data-cat="">Все<span class="n">' + boardTasks.length + '</span></button>';
+  cats.forEach(function (c) {
+    const n = boardTasks.filter(function (t) { return t.category === c.id; }).length;
+    chips += '<button class="chip' + (currentCat === c.id ? ' active' : '') + '" data-cat="' + esc(c.id) + '" style="--c:' + catColor(c.id) + '">' +
+      esc(c.name) + '<span class="n">' + n + '</span></button>';
+  });
+  if (noCat && cats.length) {
+    chips += '<button class="chip' + (currentCat === '_none' ? ' active' : '') + '" data-cat="_none">Без темы<span class="n">' + noCat + '</span></button>';
+  }
+  if (currentBoard) chips += '<button class="chip ghost" data-act="cats">⚙ Темы</button>';
+  $('#cats').innerHTML = chips;
+
+  // колонки
+  const tasks = boardTasks
+    .filter(function (t) {
+      if (currentCat === '') return true;
+      if (currentCat === '_none') return !isCat(t.category);
+      return t.category === currentCat;
+    })
+    .sort(function (a, b) { return b.created - a.created; });
+
+  $('#board').innerHTML = STATUSES.map(function (s, i) {
+    const list = tasks.filter(function (t) { return t.status === s.key; });
+    const cards = list.map(function (t) {
+      const cat = cats.find(function (c) { return c.id === t.category; });
+      return '<div class="card" draggable="true" data-id="' + esc(t.id) + '" style="--c:' + s.color + '">' +
+        (cat ? '<span class="tag" style="--t:' + catColor(cat.id) + '">' + esc(cat.name) + '</span>' : '') +
+        '<div class="text">' + esc(t.text) + '</div>' +
+        (t.comment ? '<div class="comment">💬 ' + esc(t.comment) + '</div>' : '') +
+        (t.sent ? '<div class="sent">📤 Отправлено: ' + esc(t.sentTo || 'MAX') + ' · ' + fmt(t.sent) + '</div>' : '') +
+        '<div class="meta">' + esc(t.author) + ' · ' + fmt(t.created) + '</div>' +
+        '<div class="actions">' +
+          (i > 0 ? '<button data-act="prev" title="Назад">←</button>' : '') +
+          (i < STATUSES.length - 1 ? '<button data-act="next" title="Вперёд">→</button>' : '') +
+          (t.status === 'done' ? '<button data-act="report" title="Отправить отчёт в MAX">📤</button>' : '') +
+          '<button data-act="edit" title="Изменить">✎</button>' +
+          '<button data-act="del" class="danger" title="Удалить">✕</button>' +
+        '</div></div>';
+    }).join('');
+    return '<section class="col" data-status="' + s.key + '" style="--c:' + s.color + '">' +
+      '<h2>' + s.label + ' <span class="count">' + list.length + '</span></h2>' +
+      (cards || '<div class="empty">Пусто</div>') + '</section>';
+  }).join('');
+
+  if ($('#catModal').classList.contains('show')) renderCatList();
+}
+
+// ---------- Действия с задачами ----------
+function moveTask(id, status) {
+  const t = findTask(id);
+  if (!t || t.status === status) return;
+  t.status = status;          // сразу показываем
+  render();
+  api('updateTask', { id: id, status: status });
+  if (status === 'done') openReport(t);
+}
+
+$('#tabs').addEventListener('click', function (e) {
+  const b = e.target.closest('.tab');
+  if (!b) return;
+  currentBoard = b.dataset.id;
+  currentCat = '';
+  store('tracker_board', currentBoard);
+  render();
+});
+
+$('#cats').addEventListener('click', function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.act === 'cats') { openCats(); return; }
+  currentCat = b.dataset.cat;
+  render();
+});
+
+$('#board').addEventListener('click', function (e) {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.closest('.card').dataset.id;
+  const t = findTask(id);
+  if (!t) return;
+  const i = STATUSES.findIndex(function (s) { return s.key === t.status; });
+  const act = btn.dataset.act;
+  if (act === 'prev') moveTask(id, STATUSES[i - 1].key);
+  if (act === 'next') moveTask(id, STATUSES[i + 1].key);
+  if (act === 'report') openReport(t);
+  if (act === 'edit') openTask(t);
+  if (act === 'del' && confirm('Удалить задачу?')) {
+    state.tasks = state.tasks.filter(function (x) { return x.id !== id; });
+    render();
+    api('deleteTask', { id: id });
+  }
+});
+
+// Перетаскивание карточек мышкой
+$('#board').addEventListener('dragstart', function (e) {
+  const c = e.target.closest('.card');
+  if (!c) return;
+  e.dataTransfer.setData('text/plain', c.dataset.id);
+  c.classList.add('dragging');
+});
+$('#board').addEventListener('dragend', function (e) {
+  const c = e.target.closest('.card');
+  if (c) c.classList.remove('dragging');
+});
+$('#board').addEventListener('dragover', function (e) {
+  const col = e.target.closest('.col');
+  if (!col) return;
+  e.preventDefault();
+  document.querySelectorAll('.col.over').forEach(function (x) { if (x !== col) x.classList.remove('over'); });
+  col.classList.add('over');
+});
+$('#board').addEventListener('dragleave', function (e) {
+  const col = e.target.closest('.col');
+  if (col && !col.contains(e.relatedTarget)) col.classList.remove('over');
+});
+$('#board').addEventListener('drop', function (e) {
+  const col = e.target.closest('.col');
+  if (!col) return;
+  e.preventDefault();
+  col.classList.remove('over');
+  moveTask(e.dataTransfer.getData('text/plain'), col.dataset.status);
+});
+
+// Новый бот (доска)
+$('#btnAddBoard').addEventListener('click', async function () {
+  const name = (prompt('Название бота') || '').trim();
+  if (!name) return;
+  const before = state.boards.map(function (b) { return b.id; });
+  const j = await api('addBoard', { name: name });
+  if (j.ok) {
+    const added = j.boards.find(function (b) { return before.indexOf(b.id) < 0; });
+    if (added) { currentBoard = added.id; currentCat = ''; store('tracker_board', currentBoard); render(); }
+  }
+});
+
+// ---------- Окно задачи ----------
+$('#tStatus').innerHTML = STATUSES.map(function (s) {
+  return '<option value="' + s.key + '">' + s.label + '</option>';
+}).join('');
+
+function fillCatSelect(value) {
+  const cats = boardCats(currentBoard);
+  $('#tCat').innerHTML = '<option value="">Без темы</option>' + cats.map(function (c) {
+    return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
+  }).join('');
+  $('#tCat').value = cats.some(function (c) { return c.id === value; }) ? value : '';
+}
+
+function openTask(t) {
+  editingId = t ? t.id : null;
+  $('#taskTitle').textContent = t ? 'Изменить задачу' : 'Новая задача';
+  $('#tText').value = t ? t.text : '';
+  $('#tAuthor').value = store('tracker_author') || '';
+  $('#authorWrap').style.display = t ? 'none' : '';
+  $('#statusWrap').style.display = t ? '' : 'none';
+  if (t) $('#tStatus').value = t.status;
+  fillCatSelect(t ? t.category : (currentCat !== '_none' ? currentCat : ''));
+  show('#taskModal');
+  $('#tText').focus();
+}
+
+$('#btnAddTask').addEventListener('click', function () {
+  if (!currentBoard) { alert('Сначала добавь бота'); return; }
+  openTask(null);
+});
+
+$('#taskForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  const text = $('#tText').value.trim();
+  if (!text) return;
+  const category = $('#tCat').value;
+  if (editingId) {
+    const t = findTask(editingId);
+    const status = $('#tStatus').value;
+    const wasDone = t && t.status === 'done';
+    if (t) { t.text = text; t.status = status; t.category = category; render(); }
+    api('updateTask', { id: editingId, text: text, status: status, category: category });
+    hide('#taskModal');
+    if (t && status === 'done' && !wasDone) openReport(t);
+  } else {
+    const author = $('#tAuthor').value.trim();
+    store('tracker_author', author);
+    api('addTask', { board: currentBoard, category: category, text: text, author: author });
+    hide('#taskModal');
+  }
+});
+
+// ---------- Отчёт «что сделано» ----------
+function openReport(t) {
+  reportId = t.id;
+  $('#rTask').textContent = t.text;
+  $('#rComment').value = t.comment || '';
+  $('#rName').value = store('tracker_author') || '';
+  $('#rMsg').textContent = '';
+  setSendDisabled(false);
+  show('#reportModal');
+  $('#rComment').focus();
+}
+
+function setSendDisabled(v) {
+  document.querySelectorAll('#reportForm [data-target]').forEach(function (b) { b.disabled = v; });
+}
+
+$('#rSkip').addEventListener('click', function () {
+  const t = findTask(reportId);
+  const c = $('#rComment').value.trim();
+  if (t && c !== (t.comment || '')) {
+    t.comment = c;
+    render();
+    api('updateTask', { id: reportId, comment: c });
+  }
+  hide('#reportModal');
+});
+
+$('#reportForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  const c = $('#rComment').value.trim();
+  if (!c) { $('#rMsg').textContent = 'Напиши, что сделано'; return; }
+  const name = $('#rName').value.trim();
+  store('tracker_author', name);
+  const target = (e.submitter && e.submitter.dataset.target) || 'me';
+  setSendDisabled(true);
+  $('#rMsg').textContent = 'Отправляю…';
+  const j = await api('sendReport', { id: reportId, comment: c, reporter: name, target: target });
+  setSendDisabled(false);
+  if (j.ok) {
+    hide('#reportModal');
+    setStatus(target === 'work' ? 'Отчёт отправлен в «БОТ РАБОЧИЙ»' : 'Отчёт отправлен вам в MAX');
+  } else {
+    $('#rMsg').textContent = 'Не отправилось: ' + j.error + '. Комментарий сохранён.';
+  }
+});
+
+// ---------- Темы бота ----------
+function openCats() {
+  renderCatList();
+  $('#catName').value = '';
+  show('#catModal');
+}
+
+function renderCatList() {
+  const b = state.boards.find(function (x) { return x.id === currentBoard; });
+  $('#catTitle').textContent = 'Темы: ' + (b ? b.name : '');
+  const cats = boardCats(currentBoard);
+  $('#catList').innerHTML = cats.length ? cats.map(function (c) {
+    return '<div class="cat-row" data-id="' + esc(c.id) + '">' +
+      '<span class="name"><span class="dot" style="--t:' + catColor(c.id) + '"></span>' + esc(c.name) + '</span>' +
+      '<button data-act="rename" title="Переименовать">✎</button>' +
+      '<button data-act="delete" class="danger" title="Удалить">✕</button></div>';
+  }).join('') : '<div class="empty">Тем пока нет</div>';
+}
+
+$('#catList').addEventListener('click', function (e) {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.closest('.cat-row').dataset.id;
+  const c = state.categories.find(function (x) { return x.id === id; });
+  if (!c) return;
+  if (btn.dataset.act === 'rename') {
+    const name = (prompt('Новое название темы', c.name) || '').trim();
+    if (name && name !== c.name) api('renameCategory', { id: id, name: name });
+  }
+  if (btn.dataset.act === 'delete' && confirm('Удалить тему «' + c.name + '»? Задачи останутся, но без темы.')) {
+    api('deleteCategory', { id: id });
+  }
+});
+
+$('#catForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  const name = $('#catName').value.trim();
+  if (!name) return;
+  $('#catName').value = '';
+  api('addCategory', { board: currentBoard, name: name });
+});
+
+// Кнопки «Отмена» / «Готово» и клавиша Esc закрывают окна
+document.querySelectorAll('[data-close]').forEach(function (b) {
+  b.addEventListener('click', function () { b.closest('.modal-bg').classList.remove('show'); });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') ['#taskModal', '#catModal', '#reportModal'].forEach(hide);
+});
+
+// ---------- Вход ----------
+function showLogin(msg) {
+  $('#loginMsg').textContent = msg || '';
+  show('#loginModal');
+  $('#pw').value = '';
+  $('#pw').focus();
+}
+$('#loginForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  password = $('#pw').value;
+  $('#loginMsg').textContent = 'Проверяю…';
+  const j = await load();
+  if (j.ok) {
+    store('tracker_pw', password);
+    hide('#loginModal');
+  } else if (j.error !== 'wrong_password') {
+    $('#loginMsg').textContent = j.error;
+  }
+});
+
+// Автообновление раз в 30 секунд
+setInterval(function () {
+  const modalOpen = document.querySelector('.modal-bg.show');
+  if (password && !modalOpen && !document.hidden) load(true);
+}, 30000);
+
+// Старт
+if (API_URL.indexOf('ВСТАВЬ') === 0) {
+  setStatus('Не указана ссылка на скрипт (API_URL в файле)', true);
+} else if (password) {
+  load();
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>
