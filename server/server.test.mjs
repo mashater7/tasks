@@ -189,6 +189,56 @@ test('отправка из любой колонки: заголовок по �
   assert.doesNotMatch(sent.at(-1).body.text, /Комментарий/);
 });
 
+test('задачу можно перенести на другую доску: раздел чужой доски сбрасывается, пишет новый бот', async () => {
+  const s = await api('list');
+  const [priz, anti, stop] = s.boards;
+  const catPriz = (await api('addCategory', { board: priz.id, name: 'Раздел Приза' })).categories.find(c => c.name === 'Раздел Приза').id;
+  const a = await api('addTask', { board: priz.id, category: catPriz, text: 'Про СтопСпам, но не туда' });
+  const t = a.tasks.find(x => x.text === 'Про СтопСпам, но не туда');
+  assert.equal(t.category, catPriz);
+  const u = await api('updateTask', { id: t.id, board: stop.id });
+  assert.equal(u.ok, true);
+  const moved = u.tasks.find(x => x.id === t.id);
+  assert.equal(moved.board, stop.id);
+  assert.equal(moved.category, '', 'раздел ПризКитбота у задачи СтопСпама не остаётся');
+  const r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  assert.equal(r.ok, true);
+  assert.equal(sent.at(-1).auth, 'tokStop', 'после переноса отправляет СтопСпам');
+  assert.match(sent.at(-1).body.text, /— СтопСпам_КитБот/);
+  const v = await api('updateTask', { id: t.id, board: anti.id, category: catPriz });
+  assert.equal(v.tasks.find(x => x.id === t.id).board, anti.id);
+  assert.equal(v.tasks.find(x => x.id === t.id).category, '', 'раздел чужой доски в том же запросе не прилипает');
+  const w = await api('updateTask', { id: t.id, board: priz.id, category: catPriz });
+  assert.equal(w.tasks.find(x => x.id === t.id).category, catPriz, 'свой раздел ставится');
+  await api('deleteTask', { id: t.id });
+  await api('deleteCategory', { id: catPriz });
+});
+
+test('перенос на несуществующую доску — ошибка, задача не меняется', async () => {
+  const s = await api('list');
+  const a = await api('addTask', { board: s.boards[0].id, text: 'Никуда' });
+  const t = a.tasks.find(x => x.text === 'Никуда');
+  const u = await api('updateTask', { id: t.id, board: 'nope', text: 'Изменённый текст' });
+  assert.equal(u.ok, false);
+  assert.match(u.error, /Нет такого бота/);
+  const same = u.tasks.find(x => x.id === t.id);
+  assert.equal(same.board, s.boards[0].id);
+  assert.equal(same.text, 'Никуда', 'при ошибке ничего не сохраняется');
+  await api('deleteTask', { id: t.id });
+});
+
+test('новая задача с разделом другой доски — раздел не ставится', async () => {
+  const s = await api('list');
+  const [priz, anti] = s.boards;
+  const cat = (await api('addCategory', { board: priz.id, name: 'Только Приз' })).categories.find(c => c.name === 'Только Приз').id;
+  const a = await api('addTask', { board: anti.id, category: cat, text: 'На Антибот' });
+  const t = a.tasks.find(x => x.text === 'На Антибот');
+  assert.equal(t.board, anti.id);
+  assert.equal(t.category, '');
+  await api('deleteTask', { id: t.id });
+  await api('deleteCategory', { id: cat });
+});
+
 test('новая задача с фото и «сразу отправить» — фото загружается в MAX и уходит вложением', async () => {
   const s = await api('list');
   const png = 'data:image/png;base64,' + Buffer.from('fakepng').toString('base64');

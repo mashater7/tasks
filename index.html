@@ -129,8 +129,12 @@
     <h3 id="taskTitle">Новая задача</h3>
     <label for="tText">Что нужно сделать</label>
     <textarea id="tText" required></textarea>
-    <label for="tCat">Доска</label>
-    <select id="tCat"></select>
+    <label for="tBoard">Бот (доска)</label>
+    <select id="tBoard"></select>
+    <div id="catWrap">
+      <label for="tCat">Раздел</label>
+      <select id="tCat"></select>
+    </div>
     <div id="authorWrap">
       <label for="tAuthor">Кто добавляет</label>
       <input id="tAuthor" maxlength="60" placeholder="Имя">
@@ -149,8 +153,9 @@
         <label><input type="radio" name="tWho" value="work"><span>🏢 В администрацию бота</span></label>
         <label><input type="radio" name="tWho" value="all"><span>👥 Всем</span></label>
       </div>
-      <p class="who-hint">«Всем» — и Маше, и в администрацию бота. Отправит бот <b class="sender-name"></b>.</p>
+      <p class="who-hint">«Всем» — и Маше, и в администрацию бота.</p>
     </div>
+    <p class="who-hint" id="tSender">Отправит бот <b class="sender-name"></b>.</p>
     <div class="msg" id="tMsg"></div>
     <div class="row">
       <button type="button" data-close>Отмена</button>
@@ -199,14 +204,14 @@
   </div>
 </div>
 
-<!-- Доски бота -->
+<!-- Разделы внутри бота -->
 <div class="modal-bg" id="catModal">
   <div class="modal">
-    <h3 id="catTitle">Доски</h3>
-    <p class="hint">Доски делят задачи бота: структура, тексты, рассылки и так далее.</p>
+    <h3 id="catTitle">Разделы</h3>
+    <p class="hint">Разделы делят задачи одного бота: тексты, рассылки, вопросы и так далее.</p>
     <div id="catList"></div>
     <form class="inline" id="catForm">
-      <input id="catName" maxlength="40" placeholder="Новая доска">
+      <input id="catName" maxlength="40" placeholder="Новый раздел">
       <button type="submit" class="primary">Добавить</button>
     </form>
     <div class="row"><button type="button" data-close>Готово</button></div>
@@ -242,7 +247,7 @@ const CAT_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b
 let state = { boards: [], categories: [], tasks: [], senders: {} };
 let password = store('tracker_pw') || '';
 let currentBoard = store('tracker_board') || '';
-let currentCat = '';          // '' — все, '_none' — без доски
+let currentCat = '';          // '' — все, '_none' — без раздела
 let editingId = null;
 let reportId = null;
 
@@ -333,7 +338,7 @@ function render() {
     return '<button class="tab' + (b.id === currentBoard ? ' active' : '') + '" data-id="' + esc(b.id) + '">' + esc(b.name) + '</button>';
   }).join('');
 
-  // доски
+  // разделы
   const boardTasks = state.tasks.filter(function (t) { return t.board === currentBoard; });
   const noCat = boardTasks.filter(function (t) { return !isCat(t.category); }).length;
   let chips = '<button class="chip' + (currentCat === '' ? ' active' : '') + '" data-cat="">Все<span class="n">' + boardTasks.length + '</span></button>';
@@ -343,9 +348,9 @@ function render() {
       esc(c.name) + '<span class="n">' + n + '</span></button>';
   });
   if (noCat && cats.length) {
-    chips += '<button class="chip' + (currentCat === '_none' ? ' active' : '') + '" data-cat="_none">Без доски<span class="n">' + noCat + '</span></button>';
+    chips += '<button class="chip' + (currentCat === '_none' ? ' active' : '') + '" data-cat="_none">Без раздела<span class="n">' + noCat + '</span></button>';
   }
-  if (currentBoard) chips += '<button class="chip ghost" data-act="cats">⚙ Доски</button>';
+  if (currentBoard) chips += '<button class="chip ghost" data-act="cats">⚙ Разделы</button>';
   $('#cats').innerHTML = chips;
 
   // колонки
@@ -480,13 +485,28 @@ $('#tStatus').innerHTML = STATUSES.map(function (s) {
   return '<option value="' + s.key + '">' + s.label + '</option>';
 }).join('');
 
-function fillCatSelect(value) {
-  const cats = boardCats(currentBoard);
-  $('#tCat').innerHTML = '<option value="">Без доски</option>' + cats.map(function (c) {
+// Разделы того бота, что выбран в окне; у бота без разделов поле «Раздел» не показываем.
+function fillCatSelect(board, value) {
+  const cats = boardCats(board);
+  $('#tCat').innerHTML = '<option value="">Без раздела</option>' + cats.map(function (c) {
     return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
   }).join('');
   $('#tCat').value = cats.some(function (c) { return c.id === value; }) ? value : '';
+  $('#catWrap').style.display = cats.length ? '' : 'none';
 }
+
+function fillBoardSelect(value) {
+  $('#tBoard').innerHTML = state.boards.map(function (b) {
+    return '<option value="' + esc(b.id) + '">' + esc(b.name) + '</option>';
+  }).join('');
+  $('#tBoard').value = value;
+}
+
+// Сменили бота в окне задачи — меняются разделы и подпись «Отправит бот …».
+$('#tBoard').addEventListener('change', function () {
+  fillCatSelect($('#tBoard').value, $('#tCat').value);
+  showSender($('#tBoard').value);
+});
 
 // ---------- Фото ----------
 // formPhotos: уже сохранённые { name } и новые { data } (сжатый JPEG в data:URL).
@@ -651,7 +671,9 @@ function openTask(t) {
   $('#authorWrap').style.display = t ? 'none' : '';
   $('#statusWrap').style.display = t ? '' : 'none';
   if (t) $('#tStatus').value = t.status;
-  fillCatSelect(t ? t.category : (currentCat !== '_none' ? currentCat : ''));
+  const board = t ? t.board : currentBoard;
+  fillBoardSelect(board);
+  fillCatSelect(board, t ? t.category : (currentCat !== '_none' ? currentCat : ''));
   show('#taskModal');
   $('#tText').focus();
 }
@@ -665,16 +687,17 @@ $('#taskForm').addEventListener('submit', async function (e) {
   e.preventDefault();
   const text = $('#tText').value.trim();
   if (!text) return;
+  const board = $('#tBoard').value || currentBoard;
   const category = $('#tCat').value;
   const newPhotos = formPhotos.filter(function (p) { return p.data; }).map(function (p) { return p.data; });
   if (editingId) {
     const t = findTask(editingId);
     const status = $('#tStatus').value;
     const oldStatus = t && t.status;
-    if (t) { t.text = text; t.status = status; t.category = category; render(); }
+    if (t) { t.text = text; t.status = status; t.board = board; t.category = category; render(); }
     hide('#taskModal');
     if (t && (status === 'done' || status === 'tested') && status !== oldStatus) openReport(t);
-    api('updateTask', { id: editingId, text: text, status: status, category: category,
+    api('updateTask', { id: editingId, text: text, status: status, board: board, category: category,
       addPhotos: newPhotos, removePhotos: removedPhotos });
   } else {
     const author = $('#tAuthor').value.trim();
@@ -687,10 +710,17 @@ $('#taskForm').addEventListener('submit', async function (e) {
       else b.disabled = true;
     });
     $('#tMsg').textContent = '';
-    const j = await api('addTask', { board: currentBoard, category: category, text: text, author: author,
+    const j = await api('addTask', { board: board, category: category, text: text, author: author,
       photos: newPhotos, sendTo: sendTo });
     buttons.forEach(function (b) { setBusy(b, false); });
     hide('#taskModal');
+    // задачу положили другому боту — переходим на его доску, чтобы её было видно
+    if (j.ok && board !== currentBoard && state.boards.some(function (b) { return b.id === board; })) {
+      currentBoard = board;
+      currentCat = '';
+      store('tracker_board', currentBoard);
+      render();
+    }
     if (j.ok && sendTo) setStatus('Задача отправлена ' + WHO_TEXT[sendTo]);
     if (!j.ok && j.error !== 'wrong_password') alert(j.error);
   }
@@ -772,7 +802,7 @@ $('#reportForm').addEventListener('submit', async function (e) {
   }
 });
 
-// ---------- Доски бота ----------
+// ---------- Разделы внутри бота ----------
 function openCats() {
   renderCatList();
   $('#catName').value = '';
@@ -781,14 +811,14 @@ function openCats() {
 
 function renderCatList() {
   const b = state.boards.find(function (x) { return x.id === currentBoard; });
-  $('#catTitle').textContent = 'Доски: ' + (b ? b.name : '');
+  $('#catTitle').textContent = 'Разделы: ' + (b ? b.name : '');
   const cats = boardCats(currentBoard);
   $('#catList').innerHTML = cats.length ? cats.map(function (c) {
     return '<div class="cat-row" data-id="' + esc(c.id) + '">' +
       '<span class="name"><span class="dot" style="--t:' + catColor(c.id) + '"></span>' + esc(c.name) + '</span>' +
       '<button data-act="rename" title="Переименовать">✎</button>' +
       '<button data-act="delete" class="danger" title="Удалить">✕</button></div>';
-  }).join('') : '<div class="empty">Досок пока нет</div>';
+  }).join('') : '<div class="empty">Разделов пока нет</div>';
 }
 
 $('#catList').addEventListener('click', function (e) {
@@ -798,10 +828,10 @@ $('#catList').addEventListener('click', function (e) {
   const c = state.categories.find(function (x) { return x.id === id; });
   if (!c) return;
   if (btn.dataset.act === 'rename') {
-    const name = (prompt('Новое название доски', c.name) || '').trim();
+    const name = (prompt('Новое название раздела', c.name) || '').trim();
     if (name && name !== c.name) api('renameCategory', { id: id, name: name });
   }
-  if (btn.dataset.act === 'delete' && confirm('Удалить доску «' + c.name + '»? Задачи останутся, но без доски.')) {
+  if (btn.dataset.act === 'delete' && confirm('Удалить раздел «' + c.name + '»? Задачи останутся, но без раздела.')) {
     api('deleteCategory', { id: id });
   }
 });

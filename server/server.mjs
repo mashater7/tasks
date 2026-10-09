@@ -102,6 +102,11 @@ function saveState() {
 
 const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
 const findTask = id => state.tasks.find(t => t.id === id);
+// Раздел (категория) должен быть с той же доски, что и задача, — иначе «без раздела».
+function catForBoard(cat, board) {
+  const id = str(cat, 40);
+  return state.categories.some(c => c.id === id && c.board === board) ? id : '';
+}
 
 // ---------- Фото ----------
 // Страница присылает фото как data:image/...;base64. Кладём файлом со случайным
@@ -242,7 +247,7 @@ const actions = {
     if (!text) return 'Пустая задача';
     if (!state.boards.some(b => b.id === d.board)) return 'Нет такого бота';
     const t = {
-      id: newId(), board: d.board, category: str(d.category, 40), text,
+      id: newId(), board: d.board, category: catForBoard(d.category, d.board), text,
       author: str(d.author, 60), status: 'new', comment: '', photos: savePhotos(d.photos),
       sent: 0, sentTo: '', created: Date.now(),
     };
@@ -258,9 +263,15 @@ const actions = {
   updateTask(d) {
     const t = findTask(d.id);
     if (!t) return 'Задача не найдена';
+    // Перенос на другую доску (другого бота): сначала проверка, чтобы при ошибке ничего не менять.
+    if (d.board !== undefined && !state.boards.some(b => b.id === d.board)) return 'Нет такого бота';
+    if (d.board !== undefined && d.board !== t.board) {
+      t.board = d.board;
+      t.category = catForBoard(t.category, t.board);
+    }
     if (d.text !== undefined) { const text = str(d.text, 4000); if (text) t.text = text; }
     if (d.status !== undefined && STATUSES.includes(d.status)) t.status = d.status;
-    if (d.category !== undefined) t.category = str(d.category, 40);
+    if (d.category !== undefined) t.category = catForBoard(d.category, t.board);
     if (d.comment !== undefined) t.comment = str(d.comment, 4000);
     if (!t.photos) t.photos = [];
     if (Array.isArray(d.removePhotos)) {
