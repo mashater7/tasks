@@ -66,6 +66,9 @@ const STATUS_TITLES = {
   new: '🆕 Новая задача', seen: '👀 Просмотрено', in_progress: '🔧 В работе',
   done: '✅ Сделано', tested: '🧪 Протестировано',
 };
+// Срочность задачи; '' — не отмечена (так у всех старых задач).
+const URGENCY_TITLES = { urgent: '🔴 Срочно', medium: '🟡 Средней срочности', later: '🟢 На будущее' };
+const urgencyOf = v => (Object.hasOwn(URGENCY_TITLES, v) ? v : '');
 const PHOTO_DIR = path.join(path.dirname(DATA_FILE), 'photos');
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
@@ -132,11 +135,13 @@ function deletePhotoFile(name) {
 }
 
 // ---------- Отправка в MAX ----------
-function reportText(t, comment, reporter) {
+export function reportText(t, comment, reporter) {
   const board = state.boards.find(b => b.id === t.board);
   const cat = state.categories.find(c => c.id === t.category);
   const where = [board && board.name, cat && cat.name].filter(Boolean).join(' · ');
-  return (STATUS_TITLES[t.status] || '📌 Задача') + (where ? ' — ' + where : '') + '\n\n' +
+  const urgency = URGENCY_TITLES[urgencyOf(t.urgency)];
+  return (STATUS_TITLES[t.status] || '📌 Задача') + (where ? ' — ' + where : '') + '\n' +
+    (urgency ? 'Срочность: ' + urgency + '\n' : '') + '\n' +
     'Задача: ' + t.text +
     (comment ? '\n\n' + (t.status === 'tested' ? 'Что проверено: ' : 'Комментарий: ') + comment : '') +
     (reporter ? '\n\n— ' + reporter : '');
@@ -247,7 +252,7 @@ const actions = {
     if (!text) return 'Пустая задача';
     if (!state.boards.some(b => b.id === d.board)) return 'Нет такого бота';
     const t = {
-      id: newId(), board: d.board, category: catForBoard(d.category, d.board), text,
+      id: newId(), board: d.board, category: catForBoard(d.category, d.board), text, urgency: urgencyOf(d.urgency),
       author: str(d.author, 60), status: 'new', comment: '', photos: savePhotos(d.photos),
       sent: 0, sentTo: '', created: Date.now(),
     };
@@ -272,6 +277,8 @@ const actions = {
     if (d.text !== undefined) { const text = str(d.text, 4000); if (text) t.text = text; }
     if (d.status !== undefined && STATUSES.includes(d.status)) t.status = d.status;
     if (d.category !== undefined) t.category = catForBoard(d.category, t.board);
+    // '' снимает отметку; незнакомое значение не меняет ничего.
+    if (d.urgency === '' || urgencyOf(d.urgency)) t.urgency = urgencyOf(d.urgency);
     if (d.comment !== undefined) t.comment = str(d.comment, 4000);
     if (!t.photos) t.photos = [];
     if (Array.isArray(d.removePhotos)) {

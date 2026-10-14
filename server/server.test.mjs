@@ -28,7 +28,7 @@ const fakeMax = http.createServer((req, res) => {
   });
 });
 
-let server, base, migrateState;
+let server, base, migrateState, reportText;
 before(async () => {
   await new Promise(r => fakeMax.listen(0, '127.0.0.1', r));
   fs.writeFileSync(path.join(dir, 'bot.env'), 'BOT_TOKEN=tok123\nPROMO_NOTIFY_CHANNEL_ID=-555\n');
@@ -42,7 +42,7 @@ before(async () => {
   }));
   process.env.TASKS_CONFIG = path.join(dir, 'config.json');
   process.env.TASKS_NO_LISTEN = '1';
-  ({ server, migrateState } = await import('./server.mjs'));
+  ({ server, migrateState, reportText } = await import('./server.mjs'));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
 });
@@ -311,6 +311,65 @@ test('10 неверных паролей с одного адреса — пау
 
 test('служебные свойства объекта не считаются действиями', async () => {
   assert.equal((await api('constructor')).error, 'Неизвестное действие');
+});
+
+test('срочность: сохраняется, меняется, снимается, строка в отчёте', async () => {
+  const s = await api('list');
+  const a = await api('addTask', { board: s.boards[0].id, text: 'Срочная', urgency: 'urgent' });
+  const t = a.tasks.find(x => x.text === 'Срочная');
+  assert.equal(t.urgency, 'urgent');
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'tasks.json'), 'utf8'));
+  assert.equal(saved.tasks.find(x => x.id === t.id).urgency, 'urgent', 'сохранено в файл');
+  let r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  assert.equal(r.ok, true);
+  assert.match(sent.at(-1).body.text, /^🆕 Новая задача — [^\n]+\nСрочность: 🔴 Срочно\n\nЗадача: Срочная$/);
+  const u = await api('updateTask', { id: t.id, urgency: 'later' });
+  assert.equal(u.tasks.find(x => x.id === t.id).urgency, 'later');
+  r = await api('sendReport', { id: t.id, comment: 'ок', target: 'me' });
+  assert.match(sent.at(-1).body.text, /Срочность: 🟢 На будущее/);
+  const m = await api('updateTask', { id: t.id, urgency: 'medium' });
+  assert.equal(m.tasks.find(x => x.id === t.id).urgency, 'medium');
+  const keep = await api('updateTask', { id: t.id, text: 'Срочная 2' });
+  assert.equal(keep.tasks.find(x => x.id === t.id).urgency, 'medium', 'без поля срочность не трогается');
+  const c = await api('updateTask', { id: t.id, urgency: '' });
+  assert.equal(c.tasks.find(x => x.id === t.id).urgency, '', 'отметку можно снять');
+  await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  assert.doesNotMatch(sent.at(-1).body.text, /Срочность/);
+  await api('deleteTask', { id: t.id });
+});
+
+test('срочность: недопустимое значение не принимается', async () => {
+  const s = await api('list');
+  const a = await api('addTask', { board: s.boards[0].id, text: 'Странная', urgency: 'вчера' });
+  const t = a.tasks.find(x => x.text === 'Странная');
+  assert.equal(t.urgency, '');
+  await api('updateTask', { id: t.id, urgency: 'medium' });
+  for (const bad of ['вчера', 'constructor', '__proto__', 5, null, { a: 1 }]) {
+    const u = await api('updateTask', { id: t.id, urgency: bad });
+    assert.equal(u.ok, true);
+    assert.equal(u.tasks.find(x => x.id === t.id).urgency, 'medium', 'не принято: ' + JSON.stringify(bad));
+  }
+  await api('deleteTask', { id: t.id });
+});
+
+test('старая задача без поля срочности: отчёт как раньше, можно отметить', async () => {
+  const s = await api('list');
+  const a = await api('addTask', { board: s.boards[0].id, text: 'Старая' });
+  const t = a.tasks.find(x => x.text === 'Старая');
+  assert.equal(t.urgency, '');
+  // как в старом tasks.json — поля нет вовсе: текст отчёта прежний
+  const old = { status: 'done', board: s.boards[0].id, category: '', text: 'Старая' };
+  assert.equal(reportText(old, 'Сделала', 'Маша'),
+    '✅ Сделано — ' + s.boards[0].name + '\n\nЗадача: Старая\n\nКомментарий: Сделала\n\n— Маша');
+  assert.equal(migrateState({ tasks: [{ id: 'z', text: 'old' }] }).tasks[0].urgency, undefined, 'данные не переписываются');
+  const r = await api('sendReport', { id: t.id, comment: '', target: 'me' });
+  assert.equal(r.ok, true);
+  assert.match(sent.at(-1).body.text, /^🆕 Новая задача — [^\n]+\n\nЗадача: Старая$/);
+  const u = await api('updateTask', { id: t.id, text: 'Старая 2' });
+  assert.equal(u.tasks.find(x => x.id === t.id).urgency, '');
+  const v = await api('updateTask', { id: t.id, urgency: 'urgent' });
+  assert.equal(v.tasks.find(x => x.id === t.id).urgency, 'urgent');
+  await api('deleteTask', { id: t.id });
 });
 
 test('переименование бота', async () => {
